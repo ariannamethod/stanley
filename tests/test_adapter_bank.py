@@ -927,5 +927,97 @@ class TestHyperLoRADeterminism:
         np.testing.assert_array_equal(delta1, delta2)
 
 
+class TestGradientCheckpointing:
+    """Tests for memory optimization features."""
+
+    @pytest.fixture
+    def checkpointed_setup(self):
+        """Create trainer with gradient checkpointing enabled."""
+        layer_dims = {
+            'h.0.attn.c_attn': (64, 32),
+            'h.0.mlp.c_fc': (64, 32),
+        }
+        config = AdapterBankConfig(lora_rank=4)
+        bank = AdapterBank(config)
+        bank.initialize_adapters(layer_dims)
+
+        hyperlora = HyperLoRA(bank, hidden_dim=32, num_basis=8)
+        router = MoodRouter()
+        mixed = MixedAdapter(bank, router)
+        trainer = HyperLoRATrainer(
+            hyperlora, bank, router, mixed,
+            gradient_checkpointing=True
+        )
+        return trainer, hyperlora
+
+    def test_checkpointing_enabled(self, checkpointed_setup):
+        """Test gradient checkpointing wraps encoder."""
+        trainer, hyperlora = checkpointed_setup
+        assert trainer.gradient_checkpointing is True
+        # Encoder should be wrapped in CheckpointedEncoder
+        assert "CheckpointedEncoder" in type(hyperlora.encoder).__name__
+
+    def test_checkpointing_training_works(self, checkpointed_setup):
+        """Training should work with checkpointing."""
+        trainer, _ = checkpointed_setup
+        signals = trainer.generate_random_signals()
+        loss = trainer.train_step(signals)
+        assert isinstance(loss, float)
+        assert loss >= 0
+
+
+class TestGradientAccumulation:
+    """Tests for gradient accumulation."""
+
+    @pytest.fixture
+    def accumulating_setup(self):
+        """Create trainer with gradient accumulation."""
+        layer_dims = {'h.0.attn.c_attn': (64, 32)}
+        config = AdapterBankConfig(lora_rank=4)
+        bank = AdapterBank(config)
+        bank.initialize_adapters(layer_dims)
+
+        hyperlora = HyperLoRA(bank, hidden_dim=32, num_basis=8)
+        router = MoodRouter()
+        mixed = MixedAdapter(bank, router)
+        trainer = HyperLoRATrainer(
+            hyperlora, bank, router, mixed,
+            accumulate_steps=4
+        )
+        return trainer, hyperlora
+
+    def test_accumulation_count(self, accumulating_setup):
+        """Test accumulation counter works."""
+        trainer, _ = accumulating_setup
+        assert trainer.accumulate_steps == 4
+        assert trainer._accumulation_count == 0
+
+        # First 3 steps should accumulate
+        for i in range(3):
+            signals = trainer.generate_random_signals()
+            trainer.train_step(signals)
+            assert trainer._accumulation_count == i + 1
+
+        # 4th step should reset counter
+        signals = trainer.generate_random_signals()
+        trainer.train_step(signals)
+        assert trainer._accumulation_count == 0
+
+    def test_accumulation_training_works(self, accumulating_setup):
+        """Training with accumulation should work normally."""
+        trainer, _ = accumulating_setup
+
+        # Run 8 steps (2 full accumulation cycles)
+        losses = []
+        for _ in range(8):
+            signals = trainer.generate_random_signals()
+            loss = trainer.train_step(signals)
+            losses.append(loss)
+
+        assert len(losses) == 8
+        assert trainer.step == 8
+        assert trainer._accumulation_count == 0  # Should reset after 8 steps
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

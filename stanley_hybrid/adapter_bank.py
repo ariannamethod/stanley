@@ -828,6 +828,10 @@ class HyperLoRATrainer:
     Student: HyperLoRA (what we're training)
 
     Loss = MSE(student_delta, teacher_delta) + λ * ||student_delta||
+
+    Memory optimization:
+    - gradient_checkpointing: recompute activations during backward (saves RAM)
+    - accumulate_steps: accumulate gradients over N steps (effective larger batch)
     """
 
     def __init__(
@@ -839,12 +843,16 @@ class HyperLoRATrainer:
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
         norm_lambda: float = 0.01,
+        gradient_checkpointing: bool = False,
+        accumulate_steps: int = 1,
     ):
         self.hyperlora = hyperlora
         self.bank = bank
         self.router = router
         self.mixed_adapter = mixed_adapter
         self.norm_lambda = norm_lambda
+        self.gradient_checkpointing = gradient_checkpointing
+        self.accumulate_steps = accumulate_steps
 
         self.optimizer = torch.optim.Adam(
             hyperlora.parameters(),
@@ -854,6 +862,29 @@ class HyperLoRATrainer:
 
         self.train_losses = []
         self.step = 0
+        self._accumulation_count = 0
+
+        # Enable gradient checkpointing if requested
+        if gradient_checkpointing:
+            self._enable_checkpointing()
+
+    def _enable_checkpointing(self):
+        """Enable gradient checkpointing on encoder layers."""
+        # Wrap encoder with checkpointing
+        from torch.utils.checkpoint import checkpoint
+
+        original_encoder = self.hyperlora.encoder
+
+        class CheckpointedEncoder(nn.Module):
+            def __init__(self, encoder):
+                super().__init__()
+                self.encoder = encoder
+
+            def forward(self, x):
+                return checkpoint(self.encoder, x, use_reentrant=False)
+
+        self.hyperlora.encoder = CheckpointedEncoder(original_encoder)
+        logger.info("HyperLoRA: gradient checkpointing enabled")
 
     def generate_random_signals(self) -> "StanleySignals":
         """Generate random StanleySignals for training."""
@@ -877,9 +908,18 @@ class HyperLoRATrainer:
         )
 
     def train_step(self, signals: "StanleySignals") -> float:
-        """Single training step."""
+        """
+        Single training step with gradient accumulation support.
+
+        Gradients are accumulated over `accumulate_steps` calls,
+        then optimizer.step() is called. This effectively increases
+        batch size without increasing memory usage.
+        """
         self.hyperlora.train()
-        self.optimizer.zero_grad()
+
+        # Only zero gradients at start of accumulation cycle
+        if self._accumulation_count == 0:
+            self.optimizer.zero_grad()
 
         # Get teacher outputs (from AdapterBank)
         teacher_mix = self.router.compute_mix(signals)
@@ -913,12 +953,20 @@ class HyperLoRATrainer:
             num_layers += 1
 
         if num_layers > 0:
-            total_loss = total_loss / num_layers
+            # Scale loss by accumulation steps for correct gradient magnitude
+            total_loss = total_loss / (num_layers * self.accumulate_steps)
             total_loss.backward()
-            self.optimizer.step()
+
+            self._accumulation_count += 1
+
+            # Only step optimizer after accumulating enough gradients
+            if self._accumulation_count >= self.accumulate_steps:
+                self.optimizer.step()
+                self._accumulation_count = 0
 
         loss_val = total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss
-        self.train_losses.append(loss_val)
+        # Store unscaled loss for logging
+        self.train_losses.append(loss_val * self.accumulate_steps)
         self.step += 1
 
         return loss_val
