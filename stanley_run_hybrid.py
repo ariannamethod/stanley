@@ -139,19 +139,31 @@ def run_hybrid_repl(
 
         # Hybrid expansion (if enabled and triggered)
         was_expanded = False
+        vocabulary_stolen = 0
         if use_hybrid and hybrid.has_external:
-            # Check if high arousal or novelty
+            # Check if high arousal or novelty (lowered threshold from 0.6 to 0.2)
             pulse = stats.get("pulse", {})
             arousal = pulse.get("arousal", 0)
             novelty = pulse.get("novelty", 0)
 
-            if arousal > 0.6 or novelty > 0.6:
-                # Expand with external brain
-                response = external.expand_thought(
-                    response,
-                    temperature=0.9,
-                )
-                was_expanded = True
+            # ALWAYS steal vocabulary from GPT-2 (это главная фича!)
+            from stanley_hybrid.vocabulary_thief import VocabularyThief
+            thief = VocabularyThief(
+                external_brain=external,
+                subword_field=stanley.subword_field,
+                origin_text=user_input,
+            )
+            stolen = thief.steal_vocabulary(user_input, n_samples=1)
+            if stolen:
+                vocabulary_stolen = thief.inject_into_field(stolen)
+
+            # ALWAYS expand with GPT-2 when available (no threshold!)
+            # GPT-2 provides vocabulary richness, Stanley provides direction
+            response = external.expand_thought(
+                response,
+                temperature=0.9,
+            )
+            was_expanded = True
 
         elapsed = time.time() - start
 
@@ -162,6 +174,8 @@ def run_hybrid_repl(
 
         print(f"\n[stanley/{mode}]: {response}")
         print(f"    (ent={entropy:.2f}, aro={arousal:.2f}, time={elapsed:.2f}s)")
+        if vocabulary_stolen > 0:
+            print(f"    (stole {vocabulary_stolen} patterns from GPT-2)")
         if was_expanded:
             print("    (expanded with GPT-2 vocabulary)")
         print()

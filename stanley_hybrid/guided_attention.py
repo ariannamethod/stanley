@@ -82,7 +82,15 @@ class StanleyStateCollector:
         pulse_novelty = 0.5
 
         if o.subjectivity:
-            gravity_centers = list(o.subjectivity.identity.gravity_centers.keys())[:10]
+            # gravity_centers is a list of tuples, extract unique words
+            raw_centers = o.subjectivity.identity.gravity_centers[:30]
+            unique_words = set()
+            for trigram in raw_centers:
+                if isinstance(trigram, (list, tuple)):
+                    unique_words.update(trigram)
+                else:
+                    unique_words.add(str(trigram))
+            gravity_centers = list(unique_words)[:10]
             if hasattr(o.subjectivity, '_last_pulse') and o.subjectivity._last_pulse:
                 pulse_arousal = o.subjectivity._last_pulse.arousal
                 pulse_entropy = o.subjectivity._last_pulse.entropy
