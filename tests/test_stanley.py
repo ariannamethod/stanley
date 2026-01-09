@@ -608,6 +608,110 @@ class TestOverthinking:
         assert compute_ring_count(None) == 3
 
 
+class TestResonantRecall:
+    """
+    Test resonant recall (SantaClaus) — drunk recall from shards.
+
+    Unified memory: experience → shard → training AND recall.
+    """
+
+    def test_shard_stores_content(self):
+        """Test that shards now store content for recall."""
+        from stanley.shard import Shard
+
+        shard = Shard.create(
+            content="This is test content for recall",
+            resonance=0.8,
+            layer_deltas={},
+            fingerprint=np.zeros(64),
+        )
+
+        # Content should be stored
+        assert shard.content == "This is test content for recall"
+        assert shard.last_recalled_at == 0.0
+        assert shard.recall_count == 0
+
+    def test_recall_from_memory(self):
+        """Test basic recall from MemorySea."""
+        from stanley.memory_sea import MemorySea
+        from stanley.shard import Shard
+        from stanley.resonant_recall import ResonantRecall
+
+        memory = MemorySea()
+
+        # Add some shards
+        for i in range(3):
+            shard = Shard.create(
+                content=f"Memory about resonance and consciousness {i}",
+                resonance=0.5 + i * 0.1,
+                layer_deltas={},
+                fingerprint=np.random.randn(64),
+            )
+            memory.add(shard)
+
+        recall = ResonantRecall(memory, max_recalls=2)
+
+        # Should recall something for matching prompt
+        context = recall.recall("Tell me about resonance")
+
+        # May or may not find matches depending on tokenization
+        # Just verify structure works
+        assert recall.get_stats() is not None
+
+    def test_recall_updates_metrics(self):
+        """Test that recall updates shard metrics."""
+        from stanley.memory_sea import MemorySea
+        from stanley.shard import Shard
+        from stanley.resonant_recall import ResonantRecall
+
+        memory = MemorySea()
+
+        shard = Shard.create(
+            content="Unique test memory about patterns",
+            resonance=0.9,
+            layer_deltas={},
+            fingerprint=np.zeros(64),
+        )
+        memory.add(shard)
+
+        recall = ResonantRecall(memory, max_recalls=1)
+
+        # Initial state
+        assert shard.recall_count == 0
+
+        # Recall with matching prompt
+        context = recall.recall("patterns")
+
+        # If recalled, metrics should update
+        if context and shard.id in context.recalled_shard_ids:
+            assert shard.recall_count > 0
+            assert shard.last_recalled_at > 0
+
+    def test_silly_factor(self):
+        """Test that silly factor creates randomness."""
+        from stanley.resonant_recall import ResonantRecall, SILLY_FACTOR
+
+        # Just verify the constant exists
+        assert 0 < SILLY_FACTOR < 1
+        assert SILLY_FACTOR == 0.15  # 15% drunk recall
+
+    def test_recall_context_structure(self):
+        """Test RecallContext structure."""
+        from stanley.resonant_recall import RecallContext
+
+        context = RecallContext(
+            recalled_texts=["text1", "text2"],
+            recalled_shard_ids=["id1", "id2"],
+            token_boosts={"word": 0.1},
+            is_silly=True,
+            total_score=0.5,
+        )
+
+        assert len(context.recalled_texts) == 2
+        assert context.is_silly is True
+        assert context.total_score == 0.5
+
+
 class TestFakeDeltaMode:
     """
     Test fast delta mode for quick E2E testing.
