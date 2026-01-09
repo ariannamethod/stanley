@@ -5,6 +5,7 @@ Tests the full organism and its components.
 """
 
 import sys
+import time
 import pytest
 import numpy as np
 from pathlib import Path
@@ -823,6 +824,266 @@ class TestFakeDeltaMode:
 
         assert shard is not None
         assert shard.layer_deltas is not None
+
+
+class TestSemanticDrift:
+    """
+    Test semantic drift — trajectory learning across conversations.
+
+    Learn which semantic paths flow into each other.
+    """
+
+    def test_drift_step_creation(self):
+        """Test DriftStep creation."""
+        from stanley.semantic_drift import DriftStep
+
+        step = DriftStep(
+            episode_id="test-123",
+            step_idx=0,
+            timestamp=time.time(),
+            metrics={"entropy": 0.5, "arousal": 0.7},
+            active_tags=["internal", "resonant"],
+            resonance=0.8,
+        )
+
+        assert step.episode_id == "test-123"
+        assert len(step.active_tags) == 2
+
+    def test_episode_logging(self):
+        """Test episode logging."""
+        from stanley.semantic_drift import DriftLogger
+
+        logger = DriftLogger()
+        episode_id = logger.start_episode()
+
+        logger.log_step(
+            metrics={"entropy": 0.5},
+            active_tags=["tag1"],
+            resonance=0.6,
+        )
+        logger.log_step(
+            metrics={"entropy": 0.6},
+            active_tags=["tag2"],
+            resonance=0.7,
+        )
+
+        episode = logger.end_episode()
+
+        assert episode is not None
+        assert len(episode.steps) == 2
+        assert episode.episode_id == episode_id
+
+    def test_transition_graph(self):
+        """Test transition graph updates."""
+        from stanley.semantic_drift import DriftEpisode, DriftStep, TransitionGraph
+        import time as t
+
+        episode = DriftEpisode(episode_id="test")
+        episode.add_step(DriftStep(
+            episode_id="test", step_idx=0, timestamp=t.time(),
+            metrics={"entropy": 0.5}, active_tags=["a", "b"],
+            resonance=0.5,
+        ))
+        episode.add_step(DriftStep(
+            episode_id="test", step_idx=1, timestamp=t.time(),
+            metrics={"entropy": 0.7}, active_tags=["b", "c"],
+            resonance=0.7,
+        ))
+
+        graph = TransitionGraph()
+        graph.update_from_episode(episode)
+
+        # Should have transitions a->b, a->c, b->b, b->c
+        assert len(graph.transitions) == 4
+        assert graph.get_transition("a", "c") is not None
+
+    def test_metrics_similarity(self):
+        """Test metrics similarity computation."""
+        from stanley.semantic_drift import metrics_similarity
+
+        a = {"entropy": 0.5, "arousal": 0.5}
+        b = {"entropy": 0.5, "arousal": 0.5}
+        c = {"entropy": 1.0, "arousal": 1.0}
+
+        # Same metrics = high similarity
+        assert metrics_similarity(a, b) > 0.99
+
+        # Different metrics = lower similarity
+        assert metrics_similarity(a, c) < metrics_similarity(a, b)
+
+    def test_semantic_drift_class(self):
+        """Test SemanticDrift main class."""
+        from stanley.semantic_drift import SemanticDrift
+
+        drift = SemanticDrift()
+
+        drift.start_session()
+        drift.log_step({"entropy": 0.5}, ["tag1"], resonance=0.6)
+        drift.log_step({"entropy": 0.6}, ["tag2"], resonance=0.7)
+        drift.end_session()
+
+        stats = drift.get_stats()
+        assert stats["total_episodes"] == 1
+        assert stats["total_steps"] == 2
+
+    def test_drift_suggestion(self):
+        """Test drift suggestion (needs data)."""
+        from stanley.semantic_drift import SemanticDrift
+
+        drift = SemanticDrift()
+
+        # Build some history
+        for i in range(3):
+            drift.start_session()
+            drift.log_step({"entropy": 0.5}, ["start"], resonance=0.5)
+            drift.log_step({"entropy": 0.6}, ["middle"], resonance=0.6)
+            drift.log_step({"entropy": 0.7}, ["end"], resonance=0.7)
+            drift.end_session()
+
+        # Suggest from similar state
+        suggestions = drift.suggest_drift(
+            {"entropy": 0.55},
+            ["start"],
+        )
+
+        # May or may not have suggestions depending on similarity
+        assert isinstance(suggestions, list)
+
+
+class TestBodySense:
+    """
+    Test body sense — Stanley's internal body awareness.
+
+    MicroGrad autograd for predicting quality from internal state.
+    Regulation based on boredom/overwhelm/stuck.
+    """
+
+    def test_value_autograd(self):
+        """Test micrograd Value class works."""
+        from stanley.body_sense import Value
+
+        a = Value(2.0)
+        b = Value(3.0)
+        c = a * b + a
+        c.backward()
+
+        # dc/da = b + 1 = 4, dc/db = a = 2
+        assert abs(a.grad - 4.0) < 0.01
+        assert abs(b.grad - 2.0) < 0.01
+
+    def test_mlp_forward(self):
+        """Test MLP forward pass."""
+        from stanley.body_sense import MLP, Value
+
+        mlp = MLP(4, [8, 1])
+        x = [Value(0.5) for _ in range(4)]
+        out = mlp(x)
+
+        assert isinstance(out, Value)
+        assert -1 <= out.data <= 1  # tanh output
+
+    def test_body_state_to_features(self):
+        """Test feature extraction from BodyState."""
+        from stanley.body_sense import BodyState, body_state_to_features
+
+        state = BodyState(
+            entropy=0.6,
+            novelty=0.7,
+            arousal=0.5,
+            valence=0.2,
+            expert_name="creative",
+        )
+
+        features = body_state_to_features(state)
+
+        assert len(features) == 18  # 14 scalars + 4 one-hot
+        assert all(isinstance(f, float) for f in features)
+
+    def test_regulation_scores(self):
+        """Test boredom/overwhelm/stuck computation."""
+        from stanley.body_sense import (
+            BodyState,
+            compute_boredom_score,
+            compute_overwhelm_score,
+            compute_stuck_score,
+        )
+
+        # Boring state: low everything
+        boring = BodyState(entropy=0.1, novelty=0.1, arousal=0.1)
+        assert compute_boredom_score(boring) > 0.5
+
+        # Overwhelming state: high arousal and entropy
+        overwhelming = BodyState(entropy=0.9, arousal=0.9, valence=-0.5)
+        assert compute_overwhelm_score(overwhelming) > 0.5
+
+    def test_body_sense_predict(self):
+        """Test BodySense prediction."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+
+        state = BodyState(
+            entropy=0.5,
+            novelty=0.5,
+            arousal=0.5,
+            quality=0.7,
+        )
+
+        pred = sense.predict(state)
+        assert 0 <= pred <= 1
+
+    def test_body_sense_observe(self):
+        """Test BodySense learning."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+
+        # Train on a few examples
+        for i in range(5):
+            state = BodyState(
+                entropy=0.5 + i * 0.05,
+                novelty=0.5,
+                arousal=0.5,
+                quality=0.6 + i * 0.05,
+            )
+            loss = sense.observe(state)
+            assert loss >= 0
+
+        assert sense.observations == 5
+
+    def test_body_sense_regulate(self):
+        """Test BodySense regulation."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+
+        state = BodyState(
+            entropy=0.9,
+            arousal=0.9,
+            valence=-0.3,
+        )
+
+        result = sense.regulate(state, current_temperature=0.8, current_expert="structural")
+
+        # Should have regulation result
+        assert hasattr(result, "temperature")
+        assert hasattr(result, "boredom")
+        assert hasattr(result, "overwhelm")
+        assert hasattr(result, "stuck")
+
+    def test_body_sense_stats(self):
+        """Test BodySense statistics."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+        state = BodyState(entropy=0.5, quality=0.6)
+        sense.observe(state)
+
+        stats = sense.get_stats()
+
+        assert "observations" in stats
+        assert "running_loss" in stats
+        assert "num_parameters" in stats
 
 
 if __name__ == "__main__":
