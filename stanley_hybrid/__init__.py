@@ -22,13 +22,33 @@ from .guided_attention import (
     AttentionBiasComputer,
     GuidedExternalBrain,
 )
+from .adapter_bank import (
+    Mood,
+    AdapterBank,
+    AdapterBankConfig,
+    MoodRouter,
+    MixedAdapter,
+    GPT2WeightPatcher,
+    create_adapter_system,
+)
 
 __all__ = [
+    # External Brain
     "ExternalBrain",
     "EXTERNAL_WEIGHTS_AVAILABLE",
+    # VocabularyThief
     "VocabularyThief",
+    # GuidedAttention
     "StanleySignals",
     "StanleyStateCollector",
     "AttentionBiasComputer",
     "GuidedExternalBrain",
+    # AdapterBank (Act 3)
+    "Mood",
+    "AdapterBank",
+    "AdapterBankConfig",
+    "MoodRouter",
+    "MixedAdapter",
+    "GPT2WeightPatcher",
+    "create_adapter_system",
 ]
