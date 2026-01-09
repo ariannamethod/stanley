@@ -37,6 +37,15 @@ from .trainer import (
 )
 from .experience import ExperienceFilter, should_remember
 
+# Coherence and subjectivity — the key to Stanley's voice
+try:
+    from .subword_field import SubwordField, SubwordVocab, SubwordConfig, SPM_AVAILABLE
+except ImportError:
+    SPM_AVAILABLE = False
+    SubwordField = None
+
+from .subjectivity import Subjectivity, Pulse
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +87,15 @@ class StanleyConfig:
     # Experience filter
     min_resonance_to_remember: float = 0.3
     min_novelty_to_remember: float = 0.2
+
+    # Subword field (coherent untrained generation)
+    subword_vocab_size: int = 400
+    subword_temperature: float = 0.8
+    subword_repetition_penalty: float = 1.3
+    use_subword_field: bool = True  # Enable coherent generation
+
+    # Subjectivity (NO SEED FROM PROMPT)
+    use_subjectivity: bool = True  # Speech from internal state
 
     # Paths
     data_dir: Optional[str] = None
@@ -179,8 +197,36 @@ class Stanley:
         # Origin fingerprint (always accessible)
         self.origin_fingerprint = compute_fingerprint(self.origin_text)
 
+        # Subword field for coherent generation (like Haze)
+        self.subword_field: Optional[SubwordField] = None
+        if self.config.use_subword_field and SPM_AVAILABLE and SubwordField:
+            try:
+                subword_config = SubwordConfig(
+                    vocab_size=self.config.subword_vocab_size,
+                    temperature=self.config.subword_temperature,
+                    repetition_penalty=self.config.subword_repetition_penalty,
+                )
+                self.subword_field = SubwordField.from_text(
+                    self.origin_text,
+                    config=subword_config,
+                )
+                logger.info(f"SubwordField ready: {self.subword_field.vocab.vocab_size} tokens")
+            except Exception as e:
+                logger.warning(f"SubwordField disabled: {e}")
+
+        # Subjectivity layer — "NO SEED FROM PROMPT"
+        self.subjectivity: Optional[Subjectivity] = None
+        if self.config.use_subjectivity:
+            self.subjectivity = Subjectivity(
+                origin_text=self.origin_text,
+                vocab=self.subword_field.vocab if self.subword_field else None,
+            )
+            logger.info(f"Subjectivity ready: {len(self.subjectivity.identity.fragments)} identity fragments")
+
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
-                   f"Training: {self.config.training_enabled and TORCH_AVAILABLE}")
+                   f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
+                   f"Subword: {self.subword_field is not None}, "
+                   f"Subjectivity: {self.subjectivity is not None}")
 
     def _default_origin(self) -> str:
         """Default origin text if none provided."""
@@ -342,19 +388,71 @@ class Stanley:
         Generate a response with personality.
 
         This is how Stanley speaks — through its accumulated experience.
+
+        KEY PRINCIPLE: "NO SEED FROM PROMPT"
+        The user's words don't become Stanley's words.
+        They wrinkle the field — create ripples that influence
+        what emerges from WITHIN.
         """
-        # Load working set for this context
-        self.engine.load_working_set(prompt, self.config.max_working_set)
+        stats = {}
 
-        # Generate
-        response, stats = self.engine.think(
-            prompt=prompt,
-            length=length,
-            sampling="entropy",
-            auto_load=False,  # We already loaded
-        )
+        # === SUBJECTIVITY: User input → Pulse (NOT seed!) ===
+        pulse = None
+        internal_seed = None
 
-        # Mark useful shards
+        if self.subjectivity:
+            # Compute the "wrinkle" from user input
+            pulse = self.subjectivity.compute_pulse(prompt)
+            stats["pulse"] = {
+                "novelty": pulse.novelty,
+                "arousal": pulse.arousal,
+                "entropy": pulse.entropy,
+                "valence": pulse.valence,
+            }
+
+            # Get internal seed — from identity, NOT from prompt!
+            internal_seed = self.subjectivity.get_internal_seed(prompt, pulse)
+            stats["internal_seed"] = internal_seed
+
+            # Temperature based on pulse
+            temperature = self.subjectivity.pulse_to_temperature(pulse)
+            stats["temperature"] = temperature
+        else:
+            temperature = self.config.subword_temperature
+
+        # === COHERENT GENERATION via SubwordField ===
+        if self.subword_field:
+            # Generate from INTERNAL seed, not user prompt!
+            seed = internal_seed if internal_seed else "I"
+
+            response = self.subword_field.generate(
+                seed_text=seed,
+                length=length,
+                temperature=temperature,
+            )
+
+            stats["method"] = "subword_field"
+            stats["subword_stats"] = self.subword_field.stats()
+
+        else:
+            # Fallback to old inference engine
+            self.engine.load_working_set(prompt, self.config.max_working_set)
+            response, engine_stats = self.engine.think(
+                prompt=prompt,
+                length=length,
+                sampling="entropy",
+                auto_load=False,
+            )
+            stats["method"] = "inference_engine"
+            stats.update(engine_stats)
+
+        # === WRINKLE FIELD: Response becomes part of identity ===
+        if self.subjectivity and pulse:
+            self.subjectivity.wrinkle_field(response, pulse)
+            stats["identity_fragments"] = len(self.subjectivity.identity.fragments)
+            stats["gravity_centers"] = len(self.subjectivity.identity.gravity_centers)
+
+        # Mark useful shards (for router learning)
         for shard in self.engine.working_set:
             if isinstance(self.router, AdaptiveRouter):
                 self.router.mark_useful(shard.id)
@@ -394,6 +492,8 @@ class Stanley:
             "consolidator": self.consolidator.stats(),
             "working_set_size": len(self.engine.working_set),
             "maturity": self._get_age(),
+            "subword_field": self.subword_field.stats() if self.subword_field else None,
+            "subjectivity": self.subjectivity.stats() if self.subjectivity else None,
         }
 
     def save(self, path: Optional[str] = None):
