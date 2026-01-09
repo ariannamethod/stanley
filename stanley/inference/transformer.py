@@ -499,6 +499,83 @@ class StanleyTransformer:
 
         return out, stats
 
+    def generate_with_field(
+        self,
+        seed_seq: List[int],
+        cooccur_field: "CooccurField",
+        length: int = 200,
+        temperature: float = 1.0,
+        field_alpha: float = 0.5,
+        sampling: Literal["basic", "top_k", "top_p", "entropy"] = "entropy",
+        top_p: float = 0.9,
+        target_entropy: float = 3.0,
+    ) -> Tuple[List[int], dict]:
+        """
+        Generate with co-occurrence field bias.
+
+        This is the key to coherent untrained generation:
+        even random weights produce coherent text when
+        guided by corpus statistics.
+        """
+        T = self.T
+
+        if not seed_seq:
+            seed_seq = [0]
+
+        seq = list(seed_seq)
+        if len(seq) < T:
+            pad_val = seq[0]
+            seq = [pad_val] * (T - len(seq)) + seq
+        else:
+            seq = seq[-T:]
+
+        seq_arr = np.array(seq, dtype=np.int32)
+        out = []
+        context = list(seed_seq)  # full context for field
+
+        entropies = []
+        temps_used = []
+
+        for _ in range(length):
+            # Get model logits
+            logits = self.logits(seq_arr)
+            logits_last = logits[-1]
+
+            # Bias with co-occurrence field
+            biased_logits = cooccur_field.bias_logits(
+                logits_last, context, alpha=field_alpha
+            )
+
+            probs = softmax(biased_logits)
+            entropies.append(entropy_bits(probs))
+
+            if sampling == "entropy":
+                temp = entropy_temperature(
+                    biased_logits,
+                    target_entropy=target_entropy,
+                    min_temp=0.3,
+                    max_temp=2.0,
+                )
+                temps_used.append(temp)
+                nxt = sample_top_p(biased_logits, top_p, temp, self.rng)
+            else:
+                temps_used.append(temperature)
+                nxt = sample_top_p(biased_logits, top_p, temperature, self.rng)
+
+            out.append(nxt)
+            context.append(nxt)
+
+            seq_arr = np.roll(seq_arr, -1)
+            seq_arr[-1] = nxt
+
+        stats = {
+            "mean_entropy": float(np.mean(entropies)),
+            "mean_temp": float(np.mean(temps_used)),
+            "field_alpha": field_alpha,
+        }
+
+        return out, stats
+
     # ----- weight IO -----
 
     def save_base_weights(self, path: str | Path):
