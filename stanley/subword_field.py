@@ -90,7 +90,9 @@ class SubwordVocab:
             input_file = f.name
 
         if model_prefix is None:
-            model_prefix = tempfile.mktemp()
+            # Use NamedTemporaryFile for safe temp file creation (avoids race conditions)
+            tmp_dir = tempfile.mkdtemp()
+            model_prefix = os.path.join(tmp_dir, "spm_model")
 
         try:
             # Train SentencePiece
@@ -139,9 +141,9 @@ class SubwordVocab:
             return []
         return self.sp.EncodeAsPieces(text)
 
-    def id_to_piece(self, id: int) -> str:
+    def id_to_piece(self, token_id: int) -> str:
         """Get piece string for ID."""
-        return self.sp.IdToPiece(id)
+        return self.sp.IdToPiece(token_id)
 
     def piece_to_id(self, piece: str) -> int:
         """Get ID for piece string."""
@@ -246,22 +248,25 @@ class SubwordField:
                 for next_token, count in self.trigram_counts[key].items():
                     probs[next_token] += count / total
 
-        # Add bigram signal
+        # Add bigram signal (weight=0.5: bigrams are less specific than trigrams,
+        # so we weight them at half strength to avoid overwhelming trigram signal)
         if len(context) >= 1 and self.config.use_bigrams:
             prev = context[-1]
             if prev in self.bigram_counts:
                 total = self.bigram_totals[prev]
                 for next_token, count in self.bigram_counts[prev].items():
-                    probs[next_token] += 0.5 * count / total  # weighted less
+                    probs[next_token] += 0.5 * count / total
 
-        # Add unigram fallback
+        # Add unigram fallback (weight=0.1: unigrams are corpus-wide frequencies,
+        # used only as a gentle smoothing to avoid zero probabilities)
         if self.total_tokens > 0:
             for token, count in self.unigram_counts.items():
                 probs[token] += 0.1 * count / self.total_tokens
 
-        # Temperature
+        # Temperature scaling (numerical stability: clip probabilities before log)
         if temperature != 1.0:
-            log_probs = np.log(probs + 1e-10) / temperature
+            safe_probs = np.clip(probs, 1e-10, 1.0)
+            log_probs = np.log(safe_probs) / temperature
             probs = np.exp(log_probs)
 
         # Normalize
@@ -337,17 +342,26 @@ class SubwordField:
         logits: np.ndarray,
         context: List[int],
         alpha: float = 0.3,
+        logit_scale: float = 5.0,
     ) -> np.ndarray:
         """
         Bias model logits with subword statistics.
 
-        output = (1 - alpha) * model_logits + alpha * corpus_logits
+        output = (1 - alpha) * model_logits + alpha * corpus_logits * scale
+
+        Args:
+            logits: Model output logits (typically in range -10 to +10)
+            context: Token IDs for context
+            alpha: Blend ratio (0.3 = 30% corpus, 70% model)
+            logit_scale: Scale factor for corpus logits (default 5.0 brings
+                        corpus log-probabilities into similar dynamic range
+                        as typical model logits)
         """
         corpus_probs = self.get_next_probs(context, temperature=1.0)
-        corpus_logits = np.log(corpus_probs + 1e-10)
+        corpus_logits = np.log(np.clip(corpus_probs, 1e-10, 1.0))
 
-        # Blend
-        biased = (1 - alpha) * logits + alpha * corpus_logits * 5
+        # Blend (scale corpus logits to match model logit range)
+        biased = (1 - alpha) * logits + alpha * corpus_logits * logit_scale
         return biased
 
     def stats(self) -> dict:

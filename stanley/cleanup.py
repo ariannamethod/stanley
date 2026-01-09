@@ -100,6 +100,10 @@ def fix_contractions(text: str) -> str:
 
     "don t" → "don't"
     "I m" → "I'm"
+
+    Note: Uses case-insensitive matching which could affect rare edge cases
+    like acronyms ("IT S" → "IT's"). For Stanley's typical output (prose from
+    origin.txt), this is acceptable behavior.
     """
     contractions = {
         r"\bdon t\b": "don't",
@@ -152,9 +156,12 @@ def remove_word_repetitions(text: str) -> str:
 
     "the the" → "the"
     But preserve intentional: "love, love, love" (has punctuation)
+
+    Note: Case-sensitive to preserve stylistic casing.
+    "NO No" is kept, "the the" is deduplicated.
     """
-    # Simple word doubling
-    text = re.sub(r'\b(\w+)\s+\1\b', r'\1', text, flags=re.IGNORECASE)
+    # Simple word doubling (case-sensitive to avoid mangling "He said NO. No more.")
+    text = re.sub(r'\b(\w+)\s+\1\b', r'\1', text)
 
     return text
 
@@ -176,9 +183,12 @@ def capitalize_sentences(text: str) -> str:
     result = []
 
     for i, part in enumerate(sentences):
-        if i == 0 or (i > 0 and sentences[i-1].strip() in '.!?'):
-            if part and part[0].isalpha():
-                part = part[0].upper() + part[1:]
+        # Capitalize if: first part, OR previous part was a sentence terminator
+        prev = sentences[i-1].rstrip() if i > 0 else ""
+        should_cap = (i == 0) or (prev and prev[-1] in '.!?')
+
+        if should_cap and part and part[0].isalpha():
+            part = part[0].upper() + part[1:]
         result.append(part)
 
     return ''.join(result)
