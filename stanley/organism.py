@@ -47,6 +47,7 @@ except ImportError:
 
 from .subjectivity import Subjectivity, Pulse
 from .experts import route_from_pulse, describe_mixture
+from .overthinking import Overthinking
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,9 @@ class StanleyConfig:
 
     # Subjectivity (NO SEED FROM PROMPT)
     use_subjectivity: bool = True  # Speech from internal state
+
+    # Overthinking (circles on water — dynamic inner reflection)
+    use_overthinking: bool = True  # Enable post-generation reflection
 
     # Paths
     data_dir: Optional[str] = None
@@ -225,10 +229,17 @@ class Stanley:
             )
             logger.info(f"Subjectivity ready: {len(self.subjectivity.identity.fragments)} identity fragments")
 
+        # Overthinking — circles on water (dynamic inner reflection)
+        self.overthinking: Optional[Overthinking] = None
+        if self.config.use_overthinking and self.subword_field:
+            self.overthinking = Overthinking(self.subword_field)
+            logger.info("Overthinking ready: dynamic rings enabled")
+
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
                    f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
                    f"Subword: {self.subword_field is not None}, "
-                   f"Subjectivity: {self.subjectivity is not None}")
+                   f"Subjectivity: {self.subjectivity is not None}, "
+                   f"Overthinking: {self.overthinking is not None}")
 
     def _default_origin(self) -> str:
         """Default origin text if none provided."""
@@ -460,6 +471,21 @@ class Stanley:
             self.subjectivity.wrinkle_field(response, pulse)
             stats["identity_fragments"] = len(self.subjectivity.identity.fragments)
             stats["gravity_centers"] = len(self.subjectivity.identity.gravity_centers)
+
+        # === OVERTHINKING: Circles on water (dynamic inner reflection) ===
+        # Generates private reflections that enrich the field
+        # Ring count is DYNAMIC based on pulse entropy/arousal
+        if self.overthinking and response:
+            rings_snapshot = self.overthinking.generate_rings(
+                source_text=response,
+                pulse=pulse,
+            )
+            stats["overthinking"] = {
+                "ring_count": len(rings_snapshot.rings),
+                "ring_names": [r.name for r in rings_snapshot.rings],
+                "enrichment_count": self.overthinking.enrichment_count,
+                "emergent_trigrams": len(self.overthinking.emergent_trigrams),
+            }
 
         # Mark useful shards (for router learning)
         for shard in self.engine.working_set:

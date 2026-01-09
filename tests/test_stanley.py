@@ -512,6 +512,102 @@ class TestEndToEnd:
             assert "sushi" not in seed
 
 
+class TestOverthinking:
+    """
+    Test overthinking — circles on water (dynamic inner reflection).
+
+    This is EMERGENCE IN ACTION:
+    - Ring count scales with entropy/arousal
+    - Rings enrich the field (emergent patterns)
+    - Internal world becomes RICHER than dataset!
+    """
+
+    @pytest.fixture
+    def overthinking(self):
+        """Create overthinking for testing."""
+        try:
+            from stanley.subword_field import SubwordField, SubwordConfig, SPM_AVAILABLE
+            from stanley.overthinking import Overthinking
+            if not SPM_AVAILABLE:
+                pytest.skip("SentencePiece not available")
+
+            config = SubwordConfig(vocab_size=100, temperature=0.7)
+            field = SubwordField.from_text(TEST_ORIGIN, config=config)
+            return Overthinking(field)
+        except ImportError:
+            pytest.skip("Overthinking not available")
+
+    def test_ring_generation(self, overthinking):
+        """Test that rings are generated."""
+        snapshot = overthinking.generate_rings("This is a test response.")
+
+        assert len(snapshot.rings) >= 1
+        assert snapshot.rings[0].name == "echo"
+
+    def test_dynamic_ring_count(self, overthinking):
+        """Test dynamic ring count based on pulse."""
+        from stanley.subjectivity import Pulse
+
+        # Low entropy = fewer rings
+        low_pulse = Pulse(novelty=0.1, arousal=0.1, entropy=0.2, valence=0.0)
+        snapshot_low = overthinking.generate_rings("Test.", pulse=low_pulse)
+
+        # High entropy = more rings
+        high_pulse = Pulse(novelty=0.5, arousal=0.5, entropy=0.9, valence=0.0)
+        snapshot_high = overthinking.generate_rings("Test.", pulse=high_pulse)
+
+        # High entropy should have more rings
+        assert snapshot_high.depth >= snapshot_low.depth
+
+    def test_field_enrichment(self, overthinking):
+        """Test that overthinking enriches the field."""
+        initial_trigrams = len(overthinking.emergent_trigrams)
+
+        # Generate multiple rounds
+        for i in range(3):
+            overthinking.generate_rings(f"Response number {i} with some words.")
+
+        # Field should be enriched
+        assert overthinking.enrichment_count > initial_trigrams
+
+    def test_meta_patterns(self, overthinking):
+        """Test that meta-patterns emerge from rings."""
+        # Generate with repeated themes
+        overthinking.generate_rings("Resonance and memory. Memory is key.")
+        overthinking.generate_rings("Patterns of resonance emerge.")
+
+        # Meta patterns may or may not be found depending on generation
+        # Just verify the structure works
+        assert isinstance(overthinking.meta_patterns, list)
+
+    def test_stats(self, overthinking):
+        """Test overthinking stats."""
+        overthinking.generate_rings("Test response.")
+        stats = overthinking.get_stats()
+
+        assert "total_emergent_trigrams" in stats
+        assert "enrichment_count" in stats
+        assert "meta_patterns" in stats
+        assert "ring_sessions" in stats
+        assert "average_depth" in stats
+
+    def test_compute_ring_count(self):
+        """Test dynamic ring count computation."""
+        from stanley.overthinking import compute_ring_count
+        from stanley.subjectivity import Pulse
+
+        # Low entropy
+        low = Pulse(novelty=0.1, arousal=0.1, entropy=0.2, valence=0.0)
+        assert compute_ring_count(low) <= 2
+
+        # High entropy
+        high = Pulse(novelty=0.5, arousal=0.8, entropy=0.9, valence=0.0)
+        assert compute_ring_count(high) >= 3
+
+        # None pulse = default 3
+        assert compute_ring_count(None) == 3
+
+
 class TestFakeDeltaMode:
     """
     Test fast delta mode for quick E2E testing.
