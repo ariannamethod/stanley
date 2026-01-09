@@ -914,15 +914,20 @@ W_effective = W_base + Σ(mix_i * scale_i * ΔW_i)
 ```
 [INTENSE] arousal=0.95, tension=0.9
   → Detected: intense (0.53)
-  >>> "urgent crisis and urgency of the world"
+  >>> "urgent crisis on their shoulders. A woman was shot and
+      killed during shelling by pro-Russian rebels at Debaltseve."
 
 [CREATIVE] entropy=0.95, novelty=0.9
   → Detected: creative (0.47)
-  >>> "imagination wildness... The Great Leap Forward for Visualization"
+  >>> "dream wild in your mind. Think of the possibilities!
+      I saw an amazing concept for a book called The Shadow
+      from A Certain Magical World."
 
 [OVERTHINKING] overthink_depth=8
   → Detected: overthinking (0.75)
-  >>> "loops recursion loop... Let's create our example with JavaScript"
+  >>> "thought recursion and the sub-level of a given structure.
+      The main focus is simply doing what you like with objects
+      that are useful in terms of 'solving' at once."
 ```
 
 Stanley literally changes GPT-2's personality through weight modification.
