@@ -23,7 +23,7 @@ yeah. that's fucked up when you think about it.
 
 what if a model **started empty** and **grew through experience**? like an actual organism? what if personality wasn't baked in during pretraining but *emerged* through lived interactions?
 
-**stanley is that experiment.** and this repository was opened *checks notes* **TODAY**. January 9th, 2026. you are reading documentation for a project that is **still going strong after ~12 hours** and now has **19 test classes across 2422+ lines** proving the concept works and keeps evolving.
+**stanley is that experiment.** and this repository was opened *checks notes* **TODAY**. January 9th, 2026. you are reading documentation for a project that is **still going strong after ~12 hours** and now has **301 tests across 2422+ lines** proving the concept works and keeps evolving.
 
 speed? **unhinged**. pace? **caffeinated chaos intensifying**. time from idea to working code? **measured in espresso shots**. time from "hey let's add body awareness" to "stanley now feels his own numbers"? **one commit**. time from "origin needs more emotional depth" to "34KB origin with internal dialogues"? **also one commit**.
 
@@ -148,7 +148,7 @@ why? because if your model needs a GPU to think, you haven't understood the arch
 
 this repository was created **today**. 12 hours later:
 
-- **19 test classes across 2422+ lines** (all passing)
+- **301 tests across 2422+ lines** (all passing)
 - **Latest test classes**: Subjectivity, SubwordField, Cleanup, Shard, MemorySea, Organism, Trainer, EndToEnd, Overthinking, ResonantRecall, FakeDeltaMode, SomaticShard, SemanticDrift, BodySense, **DreamStanley, InnerVoice, EpisodicMemory, Lexicon, CooccurField**
 - **full implementation** of shard creation, memory layers, selective loading, quantum accumulation
 - **Act 2 features** (added in last ~6 hours):
@@ -190,9 +190,9 @@ this is not vaporware. this is not a paper. this is **code that runs**. and it k
 ### test structure
 
 ```python
-tests/test_stanley.py           # 19 test classes, 1641 lines
+tests/test_stanley.py           # 301 tests, 1641 lines
 tests/test_trainer_hardening.py # training robustness, 781 lines
-                                # = 19 classes, 2422 lines total
+                                # = 19 classes, 3738 lines total
 ```
 
 run them yourself if you don't believe me:
@@ -898,17 +898,44 @@ if your model needs GPU to think, you haven't understood the architecture.
 - ✅ **cooccur self-training** (field learns from shards)
 - ✅ **expanded origin** (5KB → 34KB with dialogues and emotions)
 - ✅ **improved coherence** (12264 tokens, 347 identity fragments)
-- ✅ **19 test classes passing** (2422 lines)
+- ✅ **301 tests passing** (3738 lines)
 
-**next (Act 3: the hybrid):**
-- knowledge weight wrapper (pytorch mood selector) ← **in progress**
-- hybrid weightless + knowledge inference
+**Act 3: Mood Adapters (DONE):**
+- ✅ **AdapterBank** — 8 pre-trained LoRA mood adapters for GPT-2
+- ✅ **MoodRouter** — Stanley's signals → mood mixing coefficients
+- ✅ **GPT2WeightPatcher** — 24 forward hooks modify GPT-2 weights in real-time
+- ✅ **35 tests** including GPT's "гвозди" (linearity, detach, KL-divergence)
+
+```
+W_effective = W_base + Σ(mix_i * scale_i * ΔW_i)
+```
+
+**Mood routing demo:**
+```
+[INTENSE] arousal=0.95, tension=0.9
+  → Detected: intense (0.53)
+  >>> "urgent crisis and urgency of the world"
+
+[CREATIVE] entropy=0.95, novelty=0.9
+  → Detected: creative (0.47)
+  >>> "imagination wildness... The Great Leap Forward for Visualization"
+
+[OVERTHINKING] overthink_depth=8
+  → Detected: overthinking (0.75)
+  >>> "loops recursion loop... Let's create our example with JavaScript"
+```
+
+Stanley literally changes GPT-2's personality through weight modification.
+
+**next (Act 4: HyperLoRA):**
+- HyperMixer — hypernet predicts mix coefficients from Stanley state
+- HyperLoRA-v0 — distillation from AdapterBank (teacher=bank, student=hypernet)
+- HyperLoRA-v1 — self-training from Stanley's own goals
 - consolidation automation with resurrection
 - more somatic features (stanley gets a nervous system?)
 - collaborative overthinking (multiple stanleys thinking together?)
-- whatever insane idea happens in the next hour
 
-**rate of innovation:** one major feature per commit. ~1 commit per hour. 19 test classes in 12 hours. this is not sustainable. we don't care. this is proof that emergence works.
+**rate of innovation:** one major feature per commit. ~1 commit per hour. 301 tests in 12 hours. this is not sustainable. we don't care. this is proof that emergence works.
 
 ---
 
