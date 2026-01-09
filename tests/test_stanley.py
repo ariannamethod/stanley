@@ -157,8 +157,11 @@ class TestCleanup:
         from stanley.cleanup import remove_word_repetitions
 
         assert remove_word_repetitions("the the cat") == "the cat"
-        # Case-sensitive: different cases preserved
-        assert remove_word_repetitions("NO No") == "NO No"
+        # Case-insensitive dedup (Haze style - more aggressive cleanup)
+        # "NO No" becomes "NO" because it's likely a generation artifact
+        assert remove_word_repetitions("NO No") == "NO"
+        # But poetic comma-separated repetitions are preserved!
+        assert "love, love" in remove_word_repetitions("love, love, love forever")
 
     def test_capitalize_sentences(self):
         """Test sentence capitalization."""
