@@ -49,6 +49,9 @@ from .subjectivity import Subjectivity, Pulse
 from .experts import route_from_pulse, describe_mixture
 from .overthinking import Overthinking
 from .resonant_recall import ResonantRecall, RecallContext
+from .body_sense import BodySense, BodyState, RegulationResult
+from .semantic_drift import SemanticDrift
+from .shard import SomaticMemory
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,15 @@ class StanleyConfig:
     # Resonant recall (SantaClaus — drunk recall from shards)
     use_resonant_recall: bool = True  # Enable memory recall
     recall_silly_factor: float = 0.15  # Probability of "drunk" random recall
+
+    # Body sense (internal body awareness)
+    use_body_sense: bool = True  # Enable boredom/overwhelm/stuck regulation
+
+    # Semantic drift (trajectory learning)
+    use_semantic_drift: bool = True  # Enable semantic trajectory tracking
+
+    # Somatic memory (body memory of felt moments)
+    use_somatic_memory: bool = True  # Enable "how did this feel?" memories
 
     # Paths
     data_dir: Optional[str] = None
@@ -235,10 +247,14 @@ class Stanley:
             logger.info(f"Subjectivity ready: {len(self.subjectivity.identity.fragments)} identity fragments")
 
         # Overthinking — circles on water (dynamic inner reflection)
+        # NOW WITH CRYSTALLIZATION: pass memory_sea so rings can crystallize!
         self.overthinking: Optional[Overthinking] = None
         if self.config.use_overthinking and self.subword_field:
-            self.overthinking = Overthinking(self.subword_field)
-            logger.info("Overthinking ready: dynamic rings enabled")
+            self.overthinking = Overthinking(
+                self.subword_field,
+                memory_sea=self.memory,  # Enable crystallization!
+            )
+            logger.info("Overthinking ready: dynamic rings + crystallization enabled")
 
         # Resonant recall — SantaClaus (drunk recall from shards)
         self.resonant_recall: Optional[ResonantRecall] = None
@@ -249,11 +265,31 @@ class Stanley:
             )
             logger.info("Resonant recall ready: SantaClaus enabled")
 
+        # Body sense — internal body awareness (MicroGrad regulation)
+        self.body_sense: Optional[BodySense] = None
+        if self.config.use_body_sense:
+            self.body_sense = BodySense(hidden_dim=16, lr=0.01)
+            logger.info("Body sense ready: boredom/overwhelm/stuck regulation")
+
+        # Semantic drift — trajectory learning
+        self.semantic_drift: Optional[SemanticDrift] = None
+        if self.config.use_semantic_drift:
+            self.semantic_drift = SemanticDrift(max_episodes=100)
+            self.semantic_drift.start_session()  # Start episode for this session
+            logger.info("Semantic drift ready: trajectory learning enabled")
+
+        # Somatic memory — body memory of felt moments
+        self.somatic_memory: Optional[SomaticMemory] = None
+        if self.config.use_somatic_memory:
+            self.somatic_memory = SomaticMemory(max_shards=500)
+            logger.info("Somatic memory ready: 'how did this feel?' enabled")
+
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
                    f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
                    f"Subword: {self.subword_field is not None}, "
                    f"Subjectivity: {self.subjectivity is not None}, "
-                   f"Overthinking: {self.overthinking is not None}")
+                   f"Overthinking: {self.overthinking is not None}, "
+                   f"BodySense: {self.body_sense is not None}")
 
     def _default_origin(self) -> str:
         """Default origin text if none provided."""
@@ -510,17 +546,88 @@ class Stanley:
         # === OVERTHINKING: Circles on water (dynamic inner reflection) ===
         # Generates private reflections that enrich the field
         # Ring count is DYNAMIC based on pulse entropy/arousal
+        # NOW WITH CRYSTALLIZATION: deep rings become internal shards!
+        crystallized = False
         if self.overthinking and response:
             rings_snapshot = self.overthinking.generate_rings(
                 source_text=response,
                 pulse=pulse,
             )
+            crystallized = self.overthinking.crystallization_count > 0
             stats["overthinking"] = {
                 "ring_count": len(rings_snapshot.rings),
                 "ring_names": [r.name for r in rings_snapshot.rings],
                 "enrichment_count": self.overthinking.enrichment_count,
                 "emergent_trigrams": len(self.overthinking.emergent_trigrams),
+                "crystallization_count": self.overthinking.crystallization_count,
             }
+
+        # === BODY SENSE: Regulate based on boredom/overwhelm/stuck ===
+        regulation = None
+        if self.body_sense and pulse:
+            # Create body state from current conditions
+            body_state = BodyState.from_pulse(
+                pulse=pulse,
+                memory=self.memory,
+                overthinking_stats=self.overthinking.get_stats() if self.overthinking else None,
+            )
+
+            # Get regulation suggestion
+            current_expert = stats.get("expert_mixture", {}).get("dominant", "structural")
+            regulation = self.body_sense.regulate(
+                body_state,
+                current_temperature=temperature,
+                current_expert=current_expert,
+            )
+            stats["body_sense"] = {
+                "boredom": regulation.boredom,
+                "overwhelm": regulation.overwhelm,
+                "stuck": regulation.stuck,
+                "predicted_quality": regulation.predicted_quality,
+            }
+
+        # === SEMANTIC DRIFT: Log step for trajectory learning ===
+        if self.semantic_drift and pulse:
+            # Get active tags from recent shards
+            active_tags = []
+            if self.memory.surface:
+                for shard in self.memory.surface[:5]:
+                    active_tags.extend(shard.semantic_tags)
+            active_tags = list(set(active_tags))[:10]
+
+            self.semantic_drift.log_step(
+                metrics={"entropy": pulse.entropy, "arousal": pulse.arousal, "novelty": pulse.novelty},
+                active_tags=active_tags,
+                resonance=pulse.arousal,
+                overthinking_depth=len(rings_snapshot.rings) if self.overthinking else 0,
+                crystallized=crystallized,
+            )
+            stats["semantic_drift"] = self.semantic_drift.get_stats()
+
+        # === SOMATIC MEMORY: Record how this moment felt ===
+        if self.somatic_memory and pulse:
+            # Use regulation quality or default
+            outcome_quality = regulation.predicted_quality if regulation else 0.5
+            outcome_tag = "neutral"
+            if regulation:
+                if regulation.boredom > 0.6:
+                    outcome_tag = "bored"
+                elif regulation.overwhelm > 0.6:
+                    outcome_tag = "overwhelmed"
+                elif regulation.stuck > 0.6:
+                    outcome_tag = "stuck"
+                elif regulation.predicted_quality > 0.7:
+                    outcome_tag = "good"
+
+            self.somatic_memory.record_moment(
+                entropy=pulse.entropy,
+                novelty=pulse.novelty,
+                arousal=pulse.arousal,
+                valence=pulse.valence,
+                outcome_quality=outcome_quality,
+                outcome_tag=outcome_tag,
+            )
+            stats["somatic_memory"] = self.somatic_memory.get_stats()
 
         # Mark useful shards (for router learning)
         for shard in self.engine.working_set:
