@@ -48,6 +48,7 @@ except ImportError:
 from .subjectivity import Subjectivity, Pulse
 from .experts import route_from_pulse, describe_mixture
 from .overthinking import Overthinking
+from .resonant_recall import ResonantRecall, RecallContext
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,10 @@ class StanleyConfig:
 
     # Overthinking (circles on water — dynamic inner reflection)
     use_overthinking: bool = True  # Enable post-generation reflection
+
+    # Resonant recall (SantaClaus — drunk recall from shards)
+    use_resonant_recall: bool = True  # Enable memory recall
+    recall_silly_factor: float = 0.15  # Probability of "drunk" random recall
 
     # Paths
     data_dir: Optional[str] = None
@@ -234,6 +239,15 @@ class Stanley:
         if self.config.use_overthinking and self.subword_field:
             self.overthinking = Overthinking(self.subword_field)
             logger.info("Overthinking ready: dynamic rings enabled")
+
+        # Resonant recall — SantaClaus (drunk recall from shards)
+        self.resonant_recall: Optional[ResonantRecall] = None
+        if self.config.use_resonant_recall:
+            self.resonant_recall = ResonantRecall(
+                self.memory,
+                silly_factor=self.config.recall_silly_factor,
+            )
+            logger.info("Resonant recall ready: SantaClaus enabled")
 
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
                    f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
@@ -439,6 +453,27 @@ class Stanley:
             }
         else:
             temperature = self.config.subword_temperature
+
+        # === RESONANT RECALL: SantaClaus brings back memories ===
+        # Recall resonant shards to influence generation
+        recall_context = None
+        if self.resonant_recall:
+            recall_context = self.resonant_recall.recall(
+                prompt=prompt,
+                pulse=pulse,
+            )
+            if recall_context:
+                stats["recall"] = {
+                    "count": len(recall_context.recalled_texts),
+                    "is_silly": recall_context.is_silly,
+                    "total_score": recall_context.total_score,
+                    "shard_ids": recall_context.recalled_shard_ids,
+                }
+                # Optionally enrich internal seed with recalled memories
+                if recall_context.recalled_texts and internal_seed:
+                    # Add a hint from recalled memory to the seed
+                    recalled_hint = recall_context.recalled_texts[0][:30]
+                    internal_seed = f"{internal_seed} {recalled_hint}"
 
         # === COHERENT GENERATION via SubwordField ===
         if self.subword_field:

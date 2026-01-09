@@ -24,24 +24,33 @@ DepthLevel = Literal["surface", "middle", "deep", "abyss"]
 class Shard:
     """
     A memory fragment — a trace of lived experience.
-    
+
     Contains LoRA-style delta weights that modify personality.
     W_effective = W_base + A @ B
+
+    Also stores content for resonant recall (SantaClaus).
     """
-    
+
     id: str
     created_at: float
     last_activated: float
     activation_count: int
-    
+
     content_hash: str
     trigger_fingerprint: np.ndarray
     resonance_score: float
-    
+
     layer_deltas: Dict[str, Tuple[np.ndarray, np.ndarray]]
-    
+
     semantic_tags: List[str] = field(default_factory=list)
     depth: DepthLevel = "surface"
+
+    # Content storage for resonant recall (SantaClaus)
+    content: Optional[str] = None
+
+    # Recall metrics (for recency penalty and stats)
+    last_recalled_at: float = 0.0
+    recall_count: int = 0
     
     @classmethod
     def create(
@@ -71,6 +80,9 @@ class Shard:
             layer_deltas=layer_deltas,
             semantic_tags=tags or [],
             depth="surface",
+            content=content,  # Store for resonant recall
+            last_recalled_at=0.0,
+            recall_count=0,
         )
     
     @staticmethod
@@ -145,6 +157,10 @@ class Shard:
             "semantic_tags": self.semantic_tags,
             "depth": self.depth,
             "layer_names": list(self.layer_deltas.keys()),
+            # Recall fields for SantaClaus
+            "content": self.content,
+            "last_recalled_at": self.last_recalled_at,
+            "recall_count": self.recall_count,
         }
         arrays["_meta"] = np.array([json.dumps(meta)])
         
@@ -174,6 +190,10 @@ class Shard:
             layer_deltas=layer_deltas,
             semantic_tags=meta["semantic_tags"],
             depth=meta["depth"],
+            # Recall fields (with backward compatibility)
+            content=meta.get("content"),
+            last_recalled_at=meta.get("last_recalled_at", 0.0),
+            recall_count=meta.get("recall_count", 0),
         )
 
 
