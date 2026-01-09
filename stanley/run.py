@@ -203,9 +203,23 @@ def run_repl(stanley: Stanley):
         think_time = time.time() - start
 
         print(f"\n[stanley]: {response}")
-        print(f"    (entropy={stats['mean_entropy']:.2f}, "
-              f"working={stats['working_set_size']}, "
-              f"time={think_time:.2f}s)")
+
+        # Extract stats with fallbacks
+        pulse_stats = stats.get('pulse', {})
+        entropy = pulse_stats.get('entropy', 0.5)
+        arousal = pulse_stats.get('arousal', 0.5)
+        temp = stats.get('temperature', 0.8)
+        method = stats.get('method', 'unknown')
+
+        # Show body sense if available
+        body = stats.get('body_sense', {})
+        boredom = body.get('boredom', 0)
+        overwhelm = body.get('overwhelm', 0)
+
+        print(f"    (ent={entropy:.2f}, aro={arousal:.2f}, temp={temp:.2f}, "
+              f"method={method}, time={think_time:.2f}s)")
+        if body:
+            print(f"    (boredom={boredom:.2f}, overwhelm={overwhelm:.2f})")
 
         # Process experience (maybe remember)
         full_interaction = f"user: {user_input}\nstanley: {response}"

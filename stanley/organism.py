@@ -96,7 +96,7 @@ class StanleyConfig:
     min_novelty_to_remember: float = 0.2
 
     # Subword field (coherent untrained generation)
-    subword_vocab_size: int = 400
+    subword_vocab_size: int = 500  # Same as Haze for better coherence
     subword_temperature: float = 0.8
     subword_repetition_penalty: float = 1.3
     use_subword_field: bool = True  # Enable coherent generation
