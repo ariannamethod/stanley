@@ -5,6 +5,7 @@ Tests the full organism and its components.
 """
 
 import sys
+import time
 import pytest
 import numpy as np
 from pathlib import Path
@@ -169,6 +170,362 @@ class TestCleanup:
 
         result = capitalize_sentences("hello. world.")
         assert result[0].isupper()
+
+
+class TestCooccurField:
+    """Test CooccurField — emergence through co-occurrence."""
+
+    def test_field_creation(self):
+        """Test creating field from text."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        stats = field.stats()
+        assert stats["total_tokens"] > 0
+        assert stats["unique_bigrams"] > 0
+        assert stats["shard_contributions"] == 0
+
+    def test_observe_text(self):
+        """Test learning from text."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Observe new text
+        new_text = "Stanley grows through resonance and memory."
+        patterns = field.observe_text(new_text, vocab, weight=1.5)
+
+        assert patterns >= 0
+        stats = field.stats()
+        # Total tokens should increase
+        assert stats["total_tokens"] > len(vocab.encode(TEST_ORIGIN))
+
+    def test_observe_shard(self):
+        """Test learning from shard — THIS IS THE KEY!"""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+        from stanley.shard import Shard
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Create a shard
+        shard = Shard.create(
+            content="I resonate deeply with this experience.",
+            resonance=0.9,
+            layer_deltas={},
+            fingerprint=np.zeros(64),
+        )
+
+        # Observe shard
+        patterns = field.observe_shard(shard, vocab)
+
+        assert patterns >= 0
+        stats = field.stats()
+        assert stats["shard_contributions"] == 1
+        assert stats["avg_resonance"] == pytest.approx(0.9, rel=0.1)
+
+    def test_bias_logits(self):
+        """Test that field biases logits."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Random logits
+        logits = np.random.randn(vocab.vocab_size).astype(np.float32)
+        context = vocab.encode("I am")
+
+        # Bias logits
+        biased = field.bias_logits(logits, context, alpha=0.3)
+
+        # Should be different from original
+        assert not np.allclose(logits, biased)
+
+    def test_resonance_between(self):
+        """Test measuring resonance between tokens."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Get tokens that appear together
+        i_token = vocab.encode("I")[0]
+
+        # Should have some resonance with nearby tokens
+        top = field.top_resonant(i_token, k=5)
+        assert len(top) > 0
+
+
+class TestLexicon:
+    """Test Lexicon — vocabulary growth through conversation."""
+
+    def test_lexicon_creation(self):
+        """Test creating lexicon."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab)
+
+        stats = lex.stats()
+        assert stats.total_words == 0
+        assert stats.total_trigrams == 0
+
+    def test_absorb_text(self):
+        """Test absorbing text."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab)
+
+        # Absorb new text
+        record = lex.absorb("Stanley learns new vocabulary quickly.")
+
+        assert record.count > 0
+        stats = lex.stats()
+        assert stats.total_words > 0
+
+    def test_absorb_with_field(self):
+        """Test absorbing text and injecting into CooccurField."""
+        from stanley.lexicon import Lexicon
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+        lex = Lexicon(vocab, field)
+
+        initial_trigrams = len(field.trigram_counts)
+
+        # Absorb new text with trigrams
+        lex.absorb("This creates new patterns in the field.")
+
+        # Field should have more trigrams now
+        assert len(field.trigram_counts) >= initial_trigrams
+
+    def test_decay(self):
+        """Test decay of absorbed patterns."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab, decay_rate=0.5)  # Fast decay for testing
+
+        # Absorb text
+        lex.absorb("Test words for decay.")
+
+        initial_words = len(lex.absorbed_words)
+
+        # Apply decay multiple times
+        for _ in range(10):
+            lex.decay()
+
+        # Some words should have decayed
+        assert len(lex.absorbed_words) < initial_words
+
+    def test_resonant_words(self):
+        """Test getting resonant words."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab)
+
+        # Absorb same text multiple times (reinforcement)
+        for _ in range(5):
+            lex.absorb("Resonance is the key to memory.", boost=1.0)
+
+        resonant = lex.get_resonant_words(n=5)
+        assert "resonance" in resonant or "memory" in resonant
+
+
+class TestEpisodicMemory:
+    """Test EpisodicMemory — Self-RAG from own history."""
+
+    def test_memory_creation(self):
+        """Test creating episodic memory."""
+        from stanley.episodes import EpisodicMemory
+
+        memory = EpisodicMemory(max_episodes=100)
+        assert len(memory.episodes) == 0
+
+    def test_observe_episode(self):
+        """Test observing an episode."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        episode = Episode(
+            seed="Hello Stanley",
+            output="Hello! I am here.",
+            metrics=StanleyMetrics(
+                entropy=0.5,
+                arousal=0.3,
+                quality=0.8,
+                resonance=0.7,
+            ),
+        )
+
+        memory.observe(episode)
+        assert len(memory.episodes) == 1
+        assert memory.episodes[0].metrics.quality == 0.8
+
+    def test_query_similar(self):
+        """Test querying similar episodes."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        # Add diverse episodes
+        for i in range(10):
+            episode = Episode(
+                seed=f"Test prompt {i}",
+                output=f"Response {i}",
+                metrics=StanleyMetrics(
+                    entropy=i * 0.1,
+                    arousal=0.5,
+                    quality=0.7,
+                ),
+            )
+            memory.observe(episode)
+
+        # Query for similar
+        query_metrics = StanleyMetrics(entropy=0.3, arousal=0.5, quality=0.7)
+        similar = memory.query_similar(query_metrics, top_k=3)
+
+        assert len(similar) == 3
+
+    def test_query_high_quality(self):
+        """Test querying high quality episodes."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        # Add episodes with varying quality
+        for i in range(5):
+            episode = Episode(
+                seed=f"Prompt {i}",
+                output=f"Response {i}",
+                metrics=StanleyMetrics(quality=i * 0.2),
+            )
+            memory.observe(episode)
+
+        # Get top quality
+        top = memory.query_high_quality(top_k=2)
+
+        assert len(top) == 2
+        # Highest quality should be first
+        assert top[0].metrics.quality >= top[1].metrics.quality
+
+    def test_query_by_seed_overlap(self):
+        """Test querying by seed overlap."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        memory.observe(Episode(
+            seed="What is love?",
+            output="Love is resonance.",
+            metrics=StanleyMetrics(quality=0.8),
+        ))
+        memory.observe(Episode(
+            seed="Tell me about memory",
+            output="Memory is an ocean.",
+            metrics=StanleyMetrics(quality=0.7),
+        ))
+
+        # Query with overlapping words
+        similar = memory.query_by_seed_overlap("What is memory?", top_k=2)
+
+        assert len(similar) == 2
+
+
+class TestInnerVoice:
+    """Test InnerVoice — Stanley's second breath."""
+
+    def test_voice_creation(self):
+        """Test creating inner voice."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+        assert voice.total_evaluations == 0
+
+    def test_score_candidate(self):
+        """Test scoring a single candidate."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Score a good response
+        candidate = voice.score_candidate(
+            "I am Stanley. I grow through resonance and memory.",
+            temperature=0.8,
+        )
+
+        assert 0 <= candidate.entropy <= 1
+        assert 0 <= candidate.coherence <= 1
+        assert 0 <= candidate.resonance <= 1
+        assert 0 <= candidate.score <= 1
+
+    def test_evaluate_two_candidates(self):
+        """Test evaluating two candidates."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Two different responses
+        response_a = "I am Stanley. I grow through experience."
+        response_b = "dfsakjf asjkdfh asjkdfhaskjfh"  # garbage
+
+        result = voice.evaluate(response_a, response_b, enrich_field=False)
+
+        # Should choose the coherent one
+        assert result.chosen == response_a
+        assert result.chosen_score > result.rejected_score
+        assert result.rejected == response_b
+
+    def test_compute_meta_weight(self):
+        """Test computing meta weight."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Low entropy → higher weight (rigid)
+        w_rigid = voice.compute_meta_weight(entropy=0.1, quality=0.5)
+
+        # Medium entropy → lower weight
+        w_medium = voice.compute_meta_weight(entropy=0.5, quality=0.5)
+
+        # Low quality → higher weight
+        w_low_quality = voice.compute_meta_weight(entropy=0.5, quality=0.2)
+
+        assert w_rigid > w_medium
+        assert w_low_quality > w_medium
+
+    def test_feed_bootstrap(self):
+        """Test feeding bootstrap buffer."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Feed with high arousal
+        voice.feed("This is an emotional response!", arousal=0.8)
+
+        assert len(voice._bootstrap_buf) == 1
+
+        # Feed with low arousal (should not add)
+        voice.feed("Boring response.", arousal=0.3)
+
+        assert len(voice._bootstrap_buf) == 1
 
 
 class TestShard:
@@ -512,6 +869,270 @@ class TestEndToEnd:
             assert "sushi" not in seed
 
 
+class TestOverthinking:
+    """
+    Test overthinking — circles on water (dynamic inner reflection).
+
+    This is EMERGENCE IN ACTION:
+    - Ring count scales with entropy/arousal
+    - Rings enrich the field (emergent patterns)
+    - Internal world becomes RICHER than dataset!
+    """
+
+    @pytest.fixture
+    def overthinking(self):
+        """Create overthinking for testing."""
+        try:
+            from stanley.subword_field import SubwordField, SubwordConfig, SPM_AVAILABLE
+            from stanley.overthinking import Overthinking
+            if not SPM_AVAILABLE:
+                pytest.skip("SentencePiece not available")
+
+            config = SubwordConfig(vocab_size=100, temperature=0.7)
+            field = SubwordField.from_text(TEST_ORIGIN, config=config)
+            return Overthinking(field)
+        except ImportError:
+            pytest.skip("Overthinking not available")
+
+    def test_ring_generation(self, overthinking):
+        """Test that rings are generated."""
+        snapshot = overthinking.generate_rings("This is a test response.")
+
+        assert len(snapshot.rings) >= 1
+        assert snapshot.rings[0].name == "echo"
+
+    def test_dynamic_ring_count(self, overthinking):
+        """Test dynamic ring count based on pulse."""
+        from stanley.subjectivity import Pulse
+
+        # Low entropy = fewer rings
+        low_pulse = Pulse(novelty=0.1, arousal=0.1, entropy=0.2, valence=0.0)
+        snapshot_low = overthinking.generate_rings("Test.", pulse=low_pulse)
+
+        # High entropy = more rings
+        high_pulse = Pulse(novelty=0.5, arousal=0.5, entropy=0.9, valence=0.0)
+        snapshot_high = overthinking.generate_rings("Test.", pulse=high_pulse)
+
+        # High entropy should have more rings
+        assert snapshot_high.depth >= snapshot_low.depth
+
+    def test_field_enrichment(self, overthinking):
+        """Test that overthinking enriches the field."""
+        initial_trigrams = len(overthinking.emergent_trigrams)
+
+        # Generate multiple rounds
+        for i in range(3):
+            overthinking.generate_rings(f"Response number {i} with some words.")
+
+        # Field should be enriched
+        assert overthinking.enrichment_count > initial_trigrams
+
+    def test_meta_patterns(self, overthinking):
+        """Test that meta-patterns emerge from rings."""
+        # Generate with repeated themes
+        overthinking.generate_rings("Resonance and memory. Memory is key.")
+        overthinking.generate_rings("Patterns of resonance emerge.")
+
+        # Meta patterns may or may not be found depending on generation
+        # Just verify the structure works
+        assert isinstance(overthinking.meta_patterns, list)
+
+    def test_stats(self, overthinking):
+        """Test overthinking stats."""
+        overthinking.generate_rings("Test response.")
+        stats = overthinking.get_stats()
+
+        assert "total_emergent_trigrams" in stats
+        assert "enrichment_count" in stats
+        assert "meta_patterns" in stats
+        assert "ring_sessions" in stats
+        assert "average_depth" in stats
+
+    def test_compute_ring_count(self):
+        """Test dynamic ring count computation."""
+        from stanley.overthinking import compute_ring_count
+        from stanley.subjectivity import Pulse
+
+        # Low entropy
+        low = Pulse(novelty=0.1, arousal=0.1, entropy=0.2, valence=0.0)
+        assert compute_ring_count(low) <= 2
+
+        # High entropy
+        high = Pulse(novelty=0.5, arousal=0.8, entropy=0.9, valence=0.0)
+        assert compute_ring_count(high) >= 3
+
+        # None pulse = default 3
+        assert compute_ring_count(None) == 3
+
+    def test_crystallization_with_memory(self):
+        """Test that deep rings can crystallize into internal shards."""
+        try:
+            from stanley.subword_field import SubwordField, SubwordConfig, SPM_AVAILABLE
+            from stanley.overthinking import Overthinking, CRYSTALLIZATION_DEPTH_THRESHOLD
+            from stanley.memory_sea import MemorySea
+            from stanley.subjectivity import Pulse
+
+            if not SPM_AVAILABLE:
+                pytest.skip("SentencePiece not available")
+
+            # Create components
+            config = SubwordConfig(vocab_size=100, temperature=0.7)
+            field = SubwordField.from_text(TEST_ORIGIN, config=config)
+            memory = MemorySea()
+
+            # Create overthinking with memory
+            thinking = Overthinking(field, memory_sea=memory)
+
+            # Build up meta-patterns first (need multiple sessions)
+            high_pulse = Pulse(novelty=0.5, arousal=0.8, entropy=0.95, valence=0.5)
+            for i in range(5):
+                thinking.generate_rings(
+                    f"Resonance memory patterns echo {i} trace fragment shard",
+                    pulse=high_pulse,
+                    rng=np.random.default_rng(42 + i),
+                )
+
+            # Stats should include crystallization_count
+            stats = thinking.get_stats()
+            assert "crystallization_count" in stats
+
+            # Note: Crystallization is probabilistic (30%), so we don't assert it happened
+            # But we verify the mechanism works without errors
+            assert thinking.crystallization_count >= 0
+
+        except ImportError:
+            pytest.skip("Components not available")
+
+    def test_crystallization_needs_memory(self):
+        """Test that crystallization requires memory_sea."""
+        try:
+            from stanley.subword_field import SubwordField, SubwordConfig, SPM_AVAILABLE
+            from stanley.overthinking import Overthinking
+            from stanley.subjectivity import Pulse
+
+            if not SPM_AVAILABLE:
+                pytest.skip("SentencePiece not available")
+
+            config = SubwordConfig(vocab_size=100, temperature=0.7)
+            field = SubwordField.from_text(TEST_ORIGIN, config=config)
+
+            # No memory = no crystallization
+            thinking = Overthinking(field, memory_sea=None)
+
+            high_pulse = Pulse(novelty=0.5, arousal=0.8, entropy=0.95, valence=0.5)
+            thinking.generate_rings("Test", pulse=high_pulse)
+
+            # Should always be 0 without memory
+            assert thinking.crystallization_count == 0
+
+        except ImportError:
+            pytest.skip("Components not available")
+
+
+class TestResonantRecall:
+    """
+    Test resonant recall (SantaClaus) — drunk recall from shards.
+
+    Unified memory: experience → shard → training AND recall.
+    """
+
+    def test_shard_stores_content(self):
+        """Test that shards now store content for recall."""
+        from stanley.shard import Shard
+
+        shard = Shard.create(
+            content="This is test content for recall",
+            resonance=0.8,
+            layer_deltas={},
+            fingerprint=np.zeros(64),
+        )
+
+        # Content should be stored
+        assert shard.content == "This is test content for recall"
+        assert shard.last_recalled_at == 0.0
+        assert shard.recall_count == 0
+
+    def test_recall_from_memory(self):
+        """Test basic recall from MemorySea."""
+        from stanley.memory_sea import MemorySea
+        from stanley.shard import Shard
+        from stanley.resonant_recall import ResonantRecall
+
+        memory = MemorySea()
+
+        # Add some shards
+        for i in range(3):
+            shard = Shard.create(
+                content=f"Memory about resonance and consciousness {i}",
+                resonance=0.5 + i * 0.1,
+                layer_deltas={},
+                fingerprint=np.random.randn(64),
+            )
+            memory.add(shard)
+
+        recall = ResonantRecall(memory, max_recalls=2)
+
+        # Should recall something for matching prompt
+        context = recall.recall("Tell me about resonance")
+
+        # May or may not find matches depending on tokenization
+        # Just verify structure works
+        assert recall.get_stats() is not None
+
+    def test_recall_updates_metrics(self):
+        """Test that recall updates shard metrics."""
+        from stanley.memory_sea import MemorySea
+        from stanley.shard import Shard
+        from stanley.resonant_recall import ResonantRecall
+
+        memory = MemorySea()
+
+        shard = Shard.create(
+            content="Unique test memory about patterns",
+            resonance=0.9,
+            layer_deltas={},
+            fingerprint=np.zeros(64),
+        )
+        memory.add(shard)
+
+        recall = ResonantRecall(memory, max_recalls=1)
+
+        # Initial state
+        assert shard.recall_count == 0
+
+        # Recall with matching prompt
+        context = recall.recall("patterns")
+
+        # If recalled, metrics should update
+        if context and shard.id in context.recalled_shard_ids:
+            assert shard.recall_count > 0
+            assert shard.last_recalled_at > 0
+
+    def test_silly_factor(self):
+        """Test that silly factor creates randomness."""
+        from stanley.resonant_recall import ResonantRecall, SILLY_FACTOR
+
+        # Just verify the constant exists
+        assert 0 < SILLY_FACTOR < 1
+        assert SILLY_FACTOR == 0.15  # 15% drunk recall
+
+    def test_recall_context_structure(self):
+        """Test RecallContext structure."""
+        from stanley.resonant_recall import RecallContext
+
+        context = RecallContext(
+            recalled_texts=["text1", "text2"],
+            recalled_shard_ids=["id1", "id2"],
+            token_boosts={"word": 0.1},
+            is_silly=True,
+            total_score=0.5,
+        )
+
+        assert len(context.recalled_texts) == 2
+        assert context.is_silly is True
+        assert context.total_score == 0.5
+
+
 class TestFakeDeltaMode:
     """
     Test fast delta mode for quick E2E testing.
@@ -559,6 +1180,461 @@ class TestFakeDeltaMode:
 
         assert shard is not None
         assert shard.layer_deltas is not None
+
+
+class TestSomaticShard:
+    """
+    Test somatic shards — body memory of how moments felt.
+
+    "When the moment felt like THIS, things went THAT way."
+    """
+
+    def test_somatic_shard_creation(self):
+        """Test creating a somatic shard."""
+        from stanley.shard import SomaticShard
+
+        shard = SomaticShard.create(
+            entropy=0.6,
+            novelty=0.7,
+            arousal=0.8,
+            valence=0.3,
+            outcome_quality=0.9,
+            outcome_tag="good",
+            context_tags=["creative", "flowing"],
+        )
+
+        assert shard.entropy == 0.6
+        assert shard.outcome_quality == 0.9
+        assert shard.outcome_tag == "good"
+        assert len(shard.metrics_vector) == 4
+
+    def test_somatic_similarity(self):
+        """Test similarity between somatic states."""
+        from stanley.shard import SomaticShard
+
+        shard = SomaticShard.create(
+            entropy=0.5, novelty=0.5, arousal=0.5, valence=0.0,
+            outcome_quality=0.7, outcome_tag="neutral",
+        )
+
+        # Same metrics = high similarity
+        same = np.array([0.5, 0.5, 0.5, 0.5])
+        assert shard.similarity_to(same) > 0.99
+
+        # Different direction = lower similarity (not just magnitude)
+        different = np.array([0.9, 0.1, 0.1, 0.9])
+        assert shard.similarity_to(different) < shard.similarity_to(same)
+
+    def test_somatic_memory(self):
+        """Test SomaticMemory collection."""
+        from stanley.shard import SomaticMemory
+
+        memory = SomaticMemory()
+
+        # Record some moments
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.8, "good")
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.7, "good")
+        memory.record_moment(0.9, 0.9, 0.9, -0.5, 0.2, "bad")
+
+        assert len(memory) == 3
+
+    def test_somatic_prediction(self):
+        """Test outcome prediction from body state."""
+        from stanley.shard import SomaticMemory
+
+        memory = SomaticMemory()
+
+        # Record many "good" outcomes at low entropy
+        for _ in range(5):
+            memory.record_moment(0.3, 0.3, 0.3, 0.2, 0.9, "good")
+
+        # Record many "bad" outcomes at high entropy
+        for _ in range(5):
+            memory.record_moment(0.9, 0.9, 0.9, -0.3, 0.2, "bad")
+
+        # Predict for low entropy state
+        quality, tag, count = memory.predict_outcome(0.3, 0.3, 0.3, 0.2)
+
+        # Should predict "good" with high quality
+        assert count > 0
+        # The prediction should favor good outcomes
+
+    def test_somatic_stats(self):
+        """Test somatic memory statistics."""
+        from stanley.shard import SomaticMemory
+
+        memory = SomaticMemory()
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.8, "good")
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.4, "bad")
+
+        stats = memory.get_stats()
+
+        assert stats["total_shards"] == 2
+        assert "outcome_distribution" in stats
+
+
+class TestSemanticDrift:
+    """
+    Test semantic drift — trajectory learning across conversations.
+
+    Learn which semantic paths flow into each other.
+    """
+
+    def test_drift_step_creation(self):
+        """Test DriftStep creation."""
+        from stanley.semantic_drift import DriftStep
+
+        step = DriftStep(
+            episode_id="test-123",
+            step_idx=0,
+            timestamp=time.time(),
+            metrics={"entropy": 0.5, "arousal": 0.7},
+            active_tags=["internal", "resonant"],
+            resonance=0.8,
+        )
+
+        assert step.episode_id == "test-123"
+        assert len(step.active_tags) == 2
+
+    def test_episode_logging(self):
+        """Test episode logging."""
+        from stanley.semantic_drift import DriftLogger
+
+        logger = DriftLogger()
+        episode_id = logger.start_episode()
+
+        logger.log_step(
+            metrics={"entropy": 0.5},
+            active_tags=["tag1"],
+            resonance=0.6,
+        )
+        logger.log_step(
+            metrics={"entropy": 0.6},
+            active_tags=["tag2"],
+            resonance=0.7,
+        )
+
+        episode = logger.end_episode()
+
+        assert episode is not None
+        assert len(episode.steps) == 2
+        assert episode.episode_id == episode_id
+
+    def test_transition_graph(self):
+        """Test transition graph updates."""
+        from stanley.semantic_drift import DriftEpisode, DriftStep, TransitionGraph
+        import time as t
+
+        episode = DriftEpisode(episode_id="test")
+        episode.add_step(DriftStep(
+            episode_id="test", step_idx=0, timestamp=t.time(),
+            metrics={"entropy": 0.5}, active_tags=["a", "b"],
+            resonance=0.5,
+        ))
+        episode.add_step(DriftStep(
+            episode_id="test", step_idx=1, timestamp=t.time(),
+            metrics={"entropy": 0.7}, active_tags=["b", "c"],
+            resonance=0.7,
+        ))
+
+        graph = TransitionGraph()
+        graph.update_from_episode(episode)
+
+        # Should have transitions a->b, a->c, b->b, b->c
+        assert len(graph.transitions) == 4
+        assert graph.get_transition("a", "c") is not None
+
+    def test_metrics_similarity(self):
+        """Test metrics similarity computation."""
+        from stanley.semantic_drift import metrics_similarity
+
+        a = {"entropy": 0.5, "arousal": 0.5}
+        b = {"entropy": 0.5, "arousal": 0.5}
+        c = {"entropy": 1.0, "arousal": 1.0}
+
+        # Same metrics = high similarity
+        assert metrics_similarity(a, b) > 0.99
+
+        # Different metrics = lower similarity
+        assert metrics_similarity(a, c) < metrics_similarity(a, b)
+
+    def test_semantic_drift_class(self):
+        """Test SemanticDrift main class."""
+        from stanley.semantic_drift import SemanticDrift
+
+        drift = SemanticDrift()
+
+        drift.start_session()
+        drift.log_step({"entropy": 0.5}, ["tag1"], resonance=0.6)
+        drift.log_step({"entropy": 0.6}, ["tag2"], resonance=0.7)
+        drift.end_session()
+
+        stats = drift.get_stats()
+        assert stats["total_episodes"] == 1
+        assert stats["total_steps"] == 2
+
+    def test_drift_suggestion(self):
+        """Test drift suggestion (needs data)."""
+        from stanley.semantic_drift import SemanticDrift
+
+        drift = SemanticDrift()
+
+        # Build some history
+        for i in range(3):
+            drift.start_session()
+            drift.log_step({"entropy": 0.5}, ["start"], resonance=0.5)
+            drift.log_step({"entropy": 0.6}, ["middle"], resonance=0.6)
+            drift.log_step({"entropy": 0.7}, ["end"], resonance=0.7)
+            drift.end_session()
+
+        # Suggest from similar state
+        suggestions = drift.suggest_drift(
+            {"entropy": 0.55},
+            ["start"],
+        )
+
+        # May or may not have suggestions depending on similarity
+        assert isinstance(suggestions, list)
+
+
+class TestBodySense:
+    """
+    Test body sense — Stanley's internal body awareness.
+
+    MicroGrad autograd for predicting quality from internal state.
+    Regulation based on boredom/overwhelm/stuck.
+    """
+
+    def test_value_autograd(self):
+        """Test micrograd Value class works."""
+        from stanley.body_sense import Value
+
+        a = Value(2.0)
+        b = Value(3.0)
+        c = a * b + a
+        c.backward()
+
+        # dc/da = b + 1 = 4, dc/db = a = 2
+        assert abs(a.grad - 4.0) < 0.01
+        assert abs(b.grad - 2.0) < 0.01
+
+    def test_mlp_forward(self):
+        """Test MLP forward pass."""
+        from stanley.body_sense import MLP, Value
+
+        mlp = MLP(4, [8, 1])
+        x = [Value(0.5) for _ in range(4)]
+        out = mlp(x)
+
+        assert isinstance(out, Value)
+        assert -1 <= out.data <= 1  # tanh output
+
+    def test_body_state_to_features(self):
+        """Test feature extraction from BodyState."""
+        from stanley.body_sense import BodyState, body_state_to_features
+
+        state = BodyState(
+            entropy=0.6,
+            novelty=0.7,
+            arousal=0.5,
+            valence=0.2,
+            expert_name="creative",
+        )
+
+        features = body_state_to_features(state)
+
+        assert len(features) == 18  # 14 scalars + 4 one-hot
+        assert all(isinstance(f, float) for f in features)
+
+    def test_regulation_scores(self):
+        """Test boredom/overwhelm/stuck computation."""
+        from stanley.body_sense import (
+            BodyState,
+            compute_boredom_score,
+            compute_overwhelm_score,
+            compute_stuck_score,
+        )
+
+        # Boring state: low everything
+        boring = BodyState(entropy=0.1, novelty=0.1, arousal=0.1)
+        assert compute_boredom_score(boring) > 0.5
+
+        # Overwhelming state: high arousal and entropy
+        overwhelming = BodyState(entropy=0.9, arousal=0.9, valence=-0.5)
+        assert compute_overwhelm_score(overwhelming) > 0.5
+
+    def test_body_sense_predict(self):
+        """Test BodySense prediction."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+
+        state = BodyState(
+            entropy=0.5,
+            novelty=0.5,
+            arousal=0.5,
+            quality=0.7,
+        )
+
+        pred = sense.predict(state)
+        assert 0 <= pred <= 1
+
+    def test_body_sense_observe(self):
+        """Test BodySense learning."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+
+        # Train on a few examples
+        for i in range(5):
+            state = BodyState(
+                entropy=0.5 + i * 0.05,
+                novelty=0.5,
+                arousal=0.5,
+                quality=0.6 + i * 0.05,
+            )
+            loss = sense.observe(state)
+            assert loss >= 0
+
+        assert sense.observations == 5
+
+    def test_body_sense_regulate(self):
+        """Test BodySense regulation."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+
+        state = BodyState(
+            entropy=0.9,
+            arousal=0.9,
+            valence=-0.3,
+        )
+
+        result = sense.regulate(state, current_temperature=0.8, current_expert="structural")
+
+        # Should have regulation result
+        assert hasattr(result, "temperature")
+        assert hasattr(result, "boredom")
+        assert hasattr(result, "overwhelm")
+        assert hasattr(result, "stuck")
+
+    def test_body_sense_stats(self):
+        """Test BodySense statistics."""
+        from stanley.body_sense import BodySense, BodyState
+
+        sense = BodySense(hidden_dim=8, lr=0.01)
+        state = BodyState(entropy=0.5, quality=0.6)
+        sense.observe(state)
+
+        stats = sense.get_stats()
+
+        assert "observations" in stats
+        assert "running_loss" in stats
+        assert "num_parameters" in stats
+
+
+class TestDreamStanley:
+    """Test DreamStanley — imaginary friend for internal dialogue."""
+
+    def test_dream_without_field(self):
+        """Test that dream handles missing subword_field gracefully."""
+        from stanley.dream import DreamStanley, DreamConfig
+
+        dreamer = DreamStanley()  # No fields
+        dialogue = dreamer.dream("test topic")
+
+        assert dialogue.topic == "test topic"
+        assert len(dialogue.turns) == 0  # Can't generate without field
+
+    def test_dream_config(self):
+        """Test DreamConfig defaults."""
+        from stanley.dream import DreamConfig
+
+        cfg = DreamConfig()
+
+        assert cfg.stanley_temperature == 0.75
+        assert cfg.friend_temperature == 0.9
+        assert cfg.max_turns == 8
+        assert cfg.min_turns == 2
+
+    def test_dream_turn_creation(self):
+        """Test DreamTurn dataclass."""
+        from stanley.dream import DreamTurn
+
+        turn = DreamTurn(
+            speaker="stanley",
+            text="I notice patterns.",
+            temperature=0.75,
+        )
+
+        assert turn.speaker == "stanley"
+        assert turn.text == "I notice patterns."
+        assert turn.temperature == 0.75
+        assert turn.timestamp > 0
+
+    def test_dream_dialogue_as_text(self):
+        """Test dialogue formatting."""
+        from stanley.dream import DreamTurn, DreamDialogue
+
+        turns = [
+            DreamTurn(speaker="stanley", text="Hello.", temperature=0.75),
+            DreamTurn(speaker="friend", text="Hi there.", temperature=0.9),
+        ]
+        dialogue = DreamDialogue(topic="greeting", turns=turns, total_duration=1.0)
+
+        text = dialogue.as_text()
+
+        assert "[Dream about: greeting]" in text
+        assert "Stanley: Hello." in text
+        assert "Friend: Hi there." in text
+
+    def test_should_dream_stuck(self):
+        """Test dream trigger on stuck state."""
+        from stanley.dream import DreamStanley, DreamConfig
+
+        cfg = DreamConfig(dream_on_stuck=True)
+        dreamer = DreamStanley(config=cfg)
+
+        should, reason = dreamer.should_dream(stuck=0.8)
+
+        assert should is True
+        assert reason == "stuck"
+
+    def test_should_dream_novelty(self):
+        """Test dream trigger on high novelty."""
+        from stanley.dream import DreamStanley, DreamConfig
+
+        cfg = DreamConfig(dream_on_novelty=True, novelty_threshold=0.7)
+        dreamer = DreamStanley(config=cfg)
+
+        should, reason = dreamer.should_dream(novelty=0.9)
+
+        assert should is True
+        assert reason == "novelty"
+
+    def test_should_not_dream_recent_topic(self):
+        """Test that recent topics don't trigger dreams."""
+        from stanley.dream import DreamStanley
+
+        dreamer = DreamStanley()
+        dreamer._recent_topics.append("memory")
+
+        should, reason = dreamer.should_dream(novelty=0.9, recent_topic="memory")
+
+        assert should is False
+        assert reason == "recent_topic"
+
+    def test_dream_stats(self):
+        """Test dream statistics."""
+        from stanley.dream import DreamStanley
+
+        dreamer = DreamStanley()
+        stats = dreamer.stats()
+
+        assert "total_dreams" in stats
+        assert "total_turns" in stats
+        assert "total_enriched_patterns" in stats
+        assert stats["total_dreams"] == 0
 
 
 if __name__ == "__main__":

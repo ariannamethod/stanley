@@ -46,6 +46,19 @@ except ImportError:
     SubwordField = None
 
 from .subjectivity import Subjectivity, Pulse
+from .experts import route_from_pulse, describe_mixture
+from .overthinking import Overthinking
+from .resonant_recall import ResonantRecall, RecallContext
+from .body_sense import BodySense, BodyState, RegulationResult
+from .semantic_drift import SemanticDrift
+from .shard import SomaticMemory
+
+# New emergence modules — self-training architecture
+from .cooccur import CooccurField, CooccurConfig
+from .lexicon import Lexicon
+from .episodes import EpisodicMemory, Episode, StanleyMetrics
+from .inner_voice import InnerVoice, InnerVoiceConfig
+from .dream import DreamStanley, DreamConfig
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +103,49 @@ class StanleyConfig:
     min_novelty_to_remember: float = 0.2
 
     # Subword field (coherent untrained generation)
-    subword_vocab_size: int = 400
+    subword_vocab_size: int = 500  # Same as Haze for better coherence
     subword_temperature: float = 0.8
     subword_repetition_penalty: float = 1.3
     use_subword_field: bool = True  # Enable coherent generation
 
     # Subjectivity (NO SEED FROM PROMPT)
     use_subjectivity: bool = True  # Speech from internal state
+
+    # Overthinking (circles on water — dynamic inner reflection)
+    use_overthinking: bool = True  # Enable post-generation reflection
+
+    # Resonant recall (SantaClaus — drunk recall from shards)
+    use_resonant_recall: bool = True  # Enable memory recall
+    recall_silly_factor: float = 0.15  # Probability of "drunk" random recall
+
+    # Body sense (internal body awareness)
+    use_body_sense: bool = True  # Enable boredom/overwhelm/stuck regulation
+
+    # Semantic drift (trajectory learning)
+    use_semantic_drift: bool = True  # Enable semantic trajectory tracking
+
+    # Somatic memory (body memory of felt moments)
+    use_somatic_memory: bool = True  # Enable "how did this feel?" memories
+
+    # CooccurField (emergence through co-occurrence)
+    use_cooccur_field: bool = True  # Enable word co-occurrence patterns
+    cooccur_window_size: int = 5  # Context window for co-occurrence
+
+    # Lexicon (vocabulary growth)
+    use_lexicon: bool = True  # Enable vocabulary absorption from conversation
+    lexicon_decay_rate: float = 0.99  # How fast old patterns fade
+
+    # Episodic memory (Self-RAG)
+    use_episodic_memory: bool = True  # Enable episodic recall
+    max_episodes: int = 500  # Maximum episodes to store
+
+    # Inner voice (self-evaluation)
+    use_inner_voice: bool = True  # Enable MetaStanley's second breath
+
+    # DreamStanley (imaginary friend)
+    use_dream: bool = True  # Enable internal dialogue with imaginary friend
+    dream_on_stuck: bool = True  # Auto-dream when stuck
+    dream_on_novelty: bool = True  # Dream about novel concepts
 
     # Paths
     data_dir: Optional[str] = None
@@ -224,10 +273,97 @@ class Stanley:
             )
             logger.info(f"Subjectivity ready: {len(self.subjectivity.identity.fragments)} identity fragments")
 
+        # Overthinking — circles on water (dynamic inner reflection)
+        # NOW WITH CRYSTALLIZATION: pass memory_sea so rings can crystallize!
+        self.overthinking: Optional[Overthinking] = None
+        if self.config.use_overthinking and self.subword_field:
+            self.overthinking = Overthinking(
+                self.subword_field,
+                memory_sea=self.memory,  # Enable crystallization!
+            )
+            logger.info("Overthinking ready: dynamic rings + crystallization enabled")
+
+        # Resonant recall — SantaClaus (drunk recall from shards)
+        self.resonant_recall: Optional[ResonantRecall] = None
+        if self.config.use_resonant_recall:
+            self.resonant_recall = ResonantRecall(
+                self.memory,
+                silly_factor=self.config.recall_silly_factor,
+            )
+            logger.info("Resonant recall ready: SantaClaus enabled")
+
+        # Body sense — internal body awareness (MicroGrad regulation)
+        self.body_sense: Optional[BodySense] = None
+        if self.config.use_body_sense:
+            self.body_sense = BodySense(hidden_dim=16, lr=0.01)
+            logger.info("Body sense ready: boredom/overwhelm/stuck regulation")
+
+        # Semantic drift — trajectory learning
+        self.semantic_drift: Optional[SemanticDrift] = None
+        if self.config.use_semantic_drift:
+            self.semantic_drift = SemanticDrift(max_episodes=100)
+            self.semantic_drift.start_session()  # Start episode for this session
+            logger.info("Semantic drift ready: trajectory learning enabled")
+
+        # Somatic memory — body memory of felt moments
+        self.somatic_memory: Optional[SomaticMemory] = None
+        if self.config.use_somatic_memory:
+            self.somatic_memory = SomaticMemory(max_shards=500)
+            logger.info("Somatic memory ready: 'how did this feel?' enabled")
+
+        # CooccurField — emergence through co-occurrence
+        self.cooccur_field: Optional[CooccurField] = None
+        if self.config.use_cooccur_field:
+            cooccur_cfg = CooccurConfig(window_size=self.config.cooccur_window_size)
+            self.cooccur_field = CooccurField.from_text(self.origin_text, self.vocab, cooccur_cfg)
+            logger.info(f"CooccurField ready: {self.cooccur_field.stats()['unique_trigrams']} trigrams")
+
+        # Lexicon — vocabulary growth through conversation
+        self.lexicon: Optional[Lexicon] = None
+        if self.config.use_lexicon:
+            self.lexicon = Lexicon(
+                self.vocab,
+                cooccur_field=self.cooccur_field,
+                decay_rate=self.config.lexicon_decay_rate,
+            )
+            logger.info("Lexicon ready: vocabulary absorption enabled")
+
+        # Episodic memory — Self-RAG from own history
+        self.episodic_memory: Optional[EpisodicMemory] = None
+        if self.config.use_episodic_memory:
+            self.episodic_memory = EpisodicMemory(max_episodes=self.config.max_episodes)
+            logger.info("Episodic memory ready: Self-RAG enabled")
+
+        # Inner voice — Stanley's second breath
+        self.inner_voice: Optional[InnerVoice] = None
+        if self.config.use_inner_voice:
+            self.inner_voice = InnerVoice(
+                vocab=self.vocab,
+                cooccur_field=self.cooccur_field,
+            )
+            logger.info("Inner voice ready: second breath enabled")
+
+        # DreamStanley — imaginary friend for internal dialogue
+        self.dream: Optional[DreamStanley] = None
+        if self.config.use_dream and self.subword_field:
+            dream_cfg = DreamConfig(
+                dream_on_stuck=self.config.dream_on_stuck,
+                dream_on_novelty=self.config.dream_on_novelty,
+            )
+            self.dream = DreamStanley(
+                subword_field=self.subword_field,
+                cooccur_field=self.cooccur_field,
+                vocab=self.vocab,
+                config=dream_cfg,
+            )
+            logger.info("DreamStanley ready: imaginary friend enabled")
+
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
                    f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
                    f"Subword: {self.subword_field is not None}, "
-                   f"Subjectivity: {self.subjectivity is not None}")
+                   f"Subjectivity: {self.subjectivity is not None}, "
+                   f"Overthinking: {self.overthinking is not None}, "
+                   f"BodySense: {self.body_sense is not None}")
 
     def _default_origin(self) -> str:
         """Default origin text if none provided."""
@@ -397,6 +533,14 @@ class Stanley:
         """
         stats = {}
 
+        # === LEXICON: Absorb vocabulary from user input ===
+        # Stanley learns YOUR words through conversation!
+        if self.lexicon:
+            absorption = self.lexicon.absorb(prompt, source="user")
+            if absorption.count > 0:
+                stats["lexicon_absorbed"] = absorption.count
+                logger.debug(f"Lexicon absorbed {absorption.count} patterns from user")
+
         # === SUBJECTIVITY: User input → Pulse (NOT seed!) ===
         pulse = None
         internal_seed = None
@@ -415,11 +559,39 @@ class Stanley:
             internal_seed = self.subjectivity.get_internal_seed(prompt, pulse)
             stats["internal_seed"] = internal_seed
 
-            # Temperature based on pulse
-            temperature = self.subjectivity.pulse_to_temperature(pulse)
+            # === EXPERT ROUTING: Dynamic temperature from pulse signals ===
+            # This is MOE-style routing - temperature emerges from expert blend
+            mixture = route_from_pulse(pulse)
+            temperature = mixture.temperature
             stats["temperature"] = temperature
+            stats["expert_mixture"] = {
+                "dominant": mixture.dominant,
+                "weights": mixture.weights,
+                "semantic_weight": mixture.semantic_weight,
+            }
         else:
             temperature = self.config.subword_temperature
+
+        # === RESONANT RECALL: SantaClaus brings back memories ===
+        # Recall resonant shards to influence generation
+        recall_context = None
+        if self.resonant_recall:
+            recall_context = self.resonant_recall.recall(
+                prompt=prompt,
+                pulse=pulse,
+            )
+            if recall_context:
+                stats["recall"] = {
+                    "count": len(recall_context.recalled_texts),
+                    "is_silly": recall_context.is_silly,
+                    "total_score": recall_context.total_score,
+                    "shard_ids": recall_context.recalled_shard_ids,
+                }
+                # Optionally enrich internal seed with recalled memories
+                if recall_context.recalled_texts and internal_seed:
+                    # Add a hint from recalled memory to the seed
+                    recalled_hint = recall_context.recalled_texts[0][:30]
+                    internal_seed = f"{internal_seed} {recalled_hint}"
 
         # === COHERENT GENERATION via SubwordField ===
         if self.subword_field:
@@ -453,10 +625,154 @@ class Stanley:
             stats["identity_fragments"] = len(self.subjectivity.identity.fragments)
             stats["gravity_centers"] = len(self.subjectivity.identity.gravity_centers)
 
+        # === OVERTHINKING: Circles on water (dynamic inner reflection) ===
+        # Generates private reflections that enrich the field
+        # Ring count is DYNAMIC based on pulse entropy/arousal
+        # NOW WITH CRYSTALLIZATION: deep rings become internal shards!
+        crystallized = False
+        if self.overthinking and response:
+            rings_snapshot = self.overthinking.generate_rings(
+                source_text=response,
+                pulse=pulse,
+            )
+            crystallized = self.overthinking.crystallization_count > 0
+            stats["overthinking"] = {
+                "ring_count": len(rings_snapshot.rings),
+                "ring_names": [r.name for r in rings_snapshot.rings],
+                "enrichment_count": self.overthinking.enrichment_count,
+                "emergent_trigrams": len(self.overthinking.emergent_trigrams),
+                "crystallization_count": self.overthinking.crystallization_count,
+            }
+
+        # === BODY SENSE: Regulate based on boredom/overwhelm/stuck ===
+        regulation = None
+        if self.body_sense and pulse:
+            # Create body state from current conditions
+            body_state = BodyState.from_pulse(
+                pulse=pulse,
+                memory=self.memory,
+                overthinking_stats=self.overthinking.get_stats() if self.overthinking else None,
+            )
+
+            # Get regulation suggestion
+            current_expert = stats.get("expert_mixture", {}).get("dominant", "structural")
+            regulation = self.body_sense.regulate(
+                body_state,
+                current_temperature=temperature,
+                current_expert=current_expert,
+            )
+            stats["body_sense"] = {
+                "boredom": regulation.boredom,
+                "overwhelm": regulation.overwhelm,
+                "stuck": regulation.stuck,
+                "predicted_quality": regulation.predicted_quality,
+            }
+
+        # === SEMANTIC DRIFT: Log step for trajectory learning ===
+        if self.semantic_drift and pulse:
+            # Get active tags from recent shards
+            active_tags = []
+            if self.memory.surface:
+                for shard in self.memory.surface[:5]:
+                    active_tags.extend(shard.semantic_tags)
+            active_tags = list(set(active_tags))[:10]
+
+            self.semantic_drift.log_step(
+                metrics={"entropy": pulse.entropy, "arousal": pulse.arousal, "novelty": pulse.novelty},
+                active_tags=active_tags,
+                resonance=pulse.arousal,
+                overthinking_depth=len(rings_snapshot.rings) if self.overthinking else 0,
+                crystallized=crystallized,
+            )
+            stats["semantic_drift"] = self.semantic_drift.get_stats()
+
+        # === SOMATIC MEMORY: Record how this moment felt ===
+        if self.somatic_memory and pulse:
+            # Use regulation quality or default
+            outcome_quality = regulation.predicted_quality if regulation else 0.5
+            outcome_tag = "neutral"
+            if regulation:
+                if regulation.boredom > 0.6:
+                    outcome_tag = "bored"
+                elif regulation.overwhelm > 0.6:
+                    outcome_tag = "overwhelmed"
+                elif regulation.stuck > 0.6:
+                    outcome_tag = "stuck"
+                elif regulation.predicted_quality > 0.7:
+                    outcome_tag = "good"
+
+            self.somatic_memory.record_moment(
+                entropy=pulse.entropy,
+                novelty=pulse.novelty,
+                arousal=pulse.arousal,
+                valence=pulse.valence,
+                outcome_quality=outcome_quality,
+                outcome_tag=outcome_tag,
+            )
+            stats["somatic_memory"] = self.somatic_memory.get_stats()
+
         # Mark useful shards (for router learning)
         for shard in self.engine.working_set:
             if isinstance(self.router, AdaptiveRouter):
                 self.router.mark_useful(shard.id)
+
+        # === COOCCUR FIELD: Learn from generated response ===
+        # Stanley's own output feeds back into emergence patterns
+        if self.cooccur_field and response:
+            new_patterns = self.cooccur_field.observe_text(response, self.vocab, weight=0.5)
+            if new_patterns > 0:
+                stats["cooccur_learned"] = new_patterns
+
+        # === INNER VOICE: Self-evaluation (optional dual generation) ===
+        # If enabled and we have a quality baseline, evaluate the response
+        if self.inner_voice and response and pulse:
+            # Feed inner voice with high-arousal outputs
+            self.inner_voice.feed(
+                reply=response,
+                arousal=pulse.arousal,
+            )
+            stats["inner_voice"] = self.inner_voice.stats()
+
+        # === AUTO-DREAM: Enter dream state if triggered ===
+        if self.dream and regulation:
+            should_dream, dream_reason = self.dream.should_dream(
+                novelty=pulse.novelty if pulse else 0,
+                stuck=regulation.stuck,
+            )
+            if should_dream:
+                if dream_reason == "stuck":
+                    dialogue = self.dream.dream_about_stuck(response[:50])
+                else:
+                    dialogue = self.dream.dream_about_novel(response[:50])
+                stats["dream"] = {
+                    "triggered": True,
+                    "reason": dream_reason,
+                    "turns": dialogue.turn_count,
+                    "enriched": dialogue.patterns_enriched,
+                }
+                logger.debug(f"Dream triggered ({dream_reason}): {dialogue.turn_count} turns")
+
+        # === EPISODIC MEMORY: Record this moment for Self-RAG ===
+        if self.episodic_memory and pulse:
+            episode = Episode(
+                seed=internal_seed or "I",
+                output=response,
+                metrics=StanleyMetrics(
+                    entropy=pulse.entropy,
+                    arousal=pulse.arousal,
+                    novelty=pulse.novelty,
+                    valence=pulse.valence,
+                    boredom=regulation.boredom if regulation else 0.0,
+                    overwhelm=regulation.overwhelm if regulation else 0.0,
+                    stuck=regulation.stuck if regulation else 0.0,
+                    temperature=temperature,
+                    method=stats.get("method", "subword_field"),
+                    quality=regulation.predicted_quality if regulation else 0.5,
+                    resonance=pulse.arousal,  # Use arousal as proxy for resonance
+                ),
+            )
+            self.episodic_memory.observe(episode)
+            stats["episodic_memory"] = self.episodic_memory.stats()
 
         # === CLEANUP: Apply Haze-style coherence magic ===
         # 1. Truncate at natural sentence boundary (no trailing "...")
@@ -501,6 +817,15 @@ class Stanley:
             "maturity": self._get_age(),
             "subword_field": self.subword_field.stats() if self.subword_field else None,
             "subjectivity": self.subjectivity.stats() if self.subjectivity else None,
+            # New emergence modules — self-training stats
+            "cooccur_field": self.cooccur_field.stats() if self.cooccur_field else None,
+            "lexicon": self.lexicon.stats().__dict__ if self.lexicon else None,
+            "episodic_memory": self.episodic_memory.stats() if self.episodic_memory else None,
+            "inner_voice": self.inner_voice.stats() if self.inner_voice else None,
+            "body_sense": self.body_sense.get_stats() if self.body_sense else None,
+            "semantic_drift": self.semantic_drift.get_stats() if self.semantic_drift else None,
+            "somatic_memory": self.somatic_memory.get_stats() if self.somatic_memory else None,
+            "dream": self.dream.stats() if self.dream else None,
         }
 
     def save(self, path: Optional[str] = None):
