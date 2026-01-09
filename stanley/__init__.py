@@ -63,6 +63,24 @@ from .cooccur import (
     CooccurConfig,
 )
 
+# Subword field — the key to coherent untrained generation
+try:
+    from .subword_field import (
+        SubwordField,
+        SubwordVocab,
+        SubwordConfig,
+        SPM_AVAILABLE,
+    )
+except ImportError:
+    SPM_AVAILABLE = False
+
+# Subjectivity — "NO SEED FROM PROMPT"
+from .subjectivity import (
+    Subjectivity,
+    Pulse,
+    Identity,
+)
+
 # Organism (main class)
 from .organism import (
     Stanley,
@@ -133,6 +151,17 @@ __all__ = [
     # Co-occurrence
     "CooccurField",
     "CooccurConfig",
+
+    # Subword field
+    "SubwordField",
+    "SubwordVocab",
+    "SubwordConfig",
+    "SPM_AVAILABLE",
+
+    # Subjectivity
+    "Subjectivity",
+    "Pulse",
+    "Identity",
 
     # Organism
     "Stanley",
