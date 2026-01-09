@@ -348,6 +348,107 @@ class TestLexicon:
         assert "resonance" in resonant or "memory" in resonant
 
 
+class TestEpisodicMemory:
+    """Test EpisodicMemory — Self-RAG from own history."""
+
+    def test_memory_creation(self):
+        """Test creating episodic memory."""
+        from stanley.episodes import EpisodicMemory
+
+        memory = EpisodicMemory(max_episodes=100)
+        assert len(memory.episodes) == 0
+
+    def test_observe_episode(self):
+        """Test observing an episode."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        episode = Episode(
+            seed="Hello Stanley",
+            output="Hello! I am here.",
+            metrics=StanleyMetrics(
+                entropy=0.5,
+                arousal=0.3,
+                quality=0.8,
+                resonance=0.7,
+            ),
+        )
+
+        memory.observe(episode)
+        assert len(memory.episodes) == 1
+        assert memory.episodes[0].metrics.quality == 0.8
+
+    def test_query_similar(self):
+        """Test querying similar episodes."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        # Add diverse episodes
+        for i in range(10):
+            episode = Episode(
+                seed=f"Test prompt {i}",
+                output=f"Response {i}",
+                metrics=StanleyMetrics(
+                    entropy=i * 0.1,
+                    arousal=0.5,
+                    quality=0.7,
+                ),
+            )
+            memory.observe(episode)
+
+        # Query for similar
+        query_metrics = StanleyMetrics(entropy=0.3, arousal=0.5, quality=0.7)
+        similar = memory.query_similar(query_metrics, top_k=3)
+
+        assert len(similar) == 3
+
+    def test_query_high_quality(self):
+        """Test querying high quality episodes."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        # Add episodes with varying quality
+        for i in range(5):
+            episode = Episode(
+                seed=f"Prompt {i}",
+                output=f"Response {i}",
+                metrics=StanleyMetrics(quality=i * 0.2),
+            )
+            memory.observe(episode)
+
+        # Get top quality
+        top = memory.query_high_quality(top_k=2)
+
+        assert len(top) == 2
+        # Highest quality should be first
+        assert top[0].metrics.quality >= top[1].metrics.quality
+
+    def test_query_by_seed_overlap(self):
+        """Test querying by seed overlap."""
+        from stanley.episodes import EpisodicMemory, Episode, StanleyMetrics
+
+        memory = EpisodicMemory()
+
+        memory.observe(Episode(
+            seed="What is love?",
+            output="Love is resonance.",
+            metrics=StanleyMetrics(quality=0.8),
+        ))
+        memory.observe(Episode(
+            seed="Tell me about memory",
+            output="Memory is an ocean.",
+            metrics=StanleyMetrics(quality=0.7),
+        ))
+
+        # Query with overlapping words
+        similar = memory.query_by_seed_overlap("What is memory?", top_k=2)
+
+        assert len(similar) == 2
+
+
 class TestShard:
     """Test memory shards."""
 
