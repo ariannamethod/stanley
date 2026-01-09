@@ -1,0 +1,16 @@
+# stanley — Self Training Attention Non-Linear EntitY
+# Dependencies
+
+# Core (inference) — numpy only, as promised
+numpy>=1.21.0
+
+# Tokenizer
+sentencepiece>=0.1.96
+
+# Training (background only, optional)
+# Uncomment when implementing micro_trainer.py
+# torch>=2.0.0
+
+# Development (optional)
+# pytest>=7.0.0
+# matplotlib>=3.5.0
