@@ -13,6 +13,7 @@ This is the heartbeat of growth.
 """
 
 from __future__ import annotations
+import itertools
 import numpy as np
 import threading
 import queue
@@ -130,6 +131,10 @@ class MicroTrainer:
         self._workers: List[threading.Thread] = []
         self._shutdown_event = threading.Event()
 
+        # Monotonic counter for PriorityQueue ordering
+        # Ensures deterministic ordering when priorities are equal
+        self._seq = itertools.count()
+
         # Start workers
         self._start_workers()
 
@@ -168,7 +173,8 @@ class MicroTrainer:
         while len(batch) < self.config.max_batch_size:
             timeout = max(0.1, deadline - time.time())
             try:
-                _, item = self._training_queue.get(timeout=timeout)
+                # Unpack (priority, seq, item) tuple
+                _, _, item = self._training_queue.get(timeout=timeout)
                 batch.append(item)
             except queue.Empty:
                 break
@@ -293,8 +299,11 @@ class MicroTrainer:
         )
 
         try:
-            # Priority queue uses (priority, item), lower = higher priority
-            self._training_queue.put_nowait((-priority, item))
+            # Priority queue uses (priority, seq, item) tuple
+            # - priority: lower = higher priority (hence -priority)
+            # - seq: monotonic counter ensures FIFO within same priority
+            # - item: the actual TrainingItem (never compared directly)
+            self._training_queue.put_nowait((-priority, next(self._seq), item))
             logger.debug(f"Queued for training: {len(content)} chars, resonance={resonance:.2f}")
             return True
         except queue.Full:
