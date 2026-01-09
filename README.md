@@ -1,6 +1,3 @@
-# stanley
-Self Training Attention Non-Linear EntitY 
-
 # STANLEY
 
 ## Self Training Attention Non-Linear EntitY
