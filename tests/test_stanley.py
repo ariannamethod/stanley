@@ -264,6 +264,90 @@ class TestCooccurField:
         assert len(top) > 0
 
 
+class TestLexicon:
+    """Test Lexicon — vocabulary growth through conversation."""
+
+    def test_lexicon_creation(self):
+        """Test creating lexicon."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab)
+
+        stats = lex.stats()
+        assert stats.total_words == 0
+        assert stats.total_trigrams == 0
+
+    def test_absorb_text(self):
+        """Test absorbing text."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab)
+
+        # Absorb new text
+        record = lex.absorb("Stanley learns new vocabulary quickly.")
+
+        assert record.count > 0
+        stats = lex.stats()
+        assert stats.total_words > 0
+
+    def test_absorb_with_field(self):
+        """Test absorbing text and injecting into CooccurField."""
+        from stanley.lexicon import Lexicon
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+        lex = Lexicon(vocab, field)
+
+        initial_trigrams = len(field.trigram_counts)
+
+        # Absorb new text with trigrams
+        lex.absorb("This creates new patterns in the field.")
+
+        # Field should have more trigrams now
+        assert len(field.trigram_counts) >= initial_trigrams
+
+    def test_decay(self):
+        """Test decay of absorbed patterns."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab, decay_rate=0.5)  # Fast decay for testing
+
+        # Absorb text
+        lex.absorb("Test words for decay.")
+
+        initial_words = len(lex.absorbed_words)
+
+        # Apply decay multiple times
+        for _ in range(10):
+            lex.decay()
+
+        # Some words should have decayed
+        assert len(lex.absorbed_words) < initial_words
+
+    def test_resonant_words(self):
+        """Test getting resonant words."""
+        from stanley.lexicon import Lexicon
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        lex = Lexicon(vocab)
+
+        # Absorb same text multiple times (reinforcement)
+        for _ in range(5):
+            lex.absorb("Resonance is the key to memory.", boost=1.0)
+
+        resonant = lex.get_resonant_words(n=5)
+        assert "resonance" in resonant or "memory" in resonant
+
+
 class TestShard:
     """Test memory shards."""
 
