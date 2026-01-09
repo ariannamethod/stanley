@@ -146,9 +146,9 @@ why? because if your model needs a GPU to think, you haven't understood the arch
 
 ## the proof (or: why this matters)
 
-this repository was created **today**. 12 hours later:
+this repository was created **today**. 16 hours later:
 
-- **301+ tests across 3738+ lines** (all passing)
+- **336+ tests across 5000+ lines** (all passing)
 - **Latest test classes**: Subjectivity, SubwordField, Cleanup, Shard, MemorySea, Organism, Trainer, EndToEnd, Overthinking, ResonantRecall, FakeDeltaMode, SomaticShard, SemanticDrift, BodySense, **DreamStanley, InnerVoice, EpisodicMemory, Lexicon, CooccurField, AdapterBank, MoodRouter, GPT2WeightPatcher**
 - **full implementation** of shard creation, memory layers, selective loading, quantum accumulation
 - **three evolutionary acts** completed in ~16 hours:
@@ -199,7 +199,7 @@ run them yourself if you don't believe me:
 
 ```bash
 python -m pytest tests/ -v
-# warning: might blow your mind that ALL 3 ACTS dropped in ONE DAY
+# all 3 acts dropped in one day
 ```
 
 ---
@@ -868,7 +868,7 @@ direction. Everything let each time you recognizably.
 4. **simple repetitions work** — "I remember. I forget. I grow. I change." creates strong patterns
 5. **coherence = architecture + content** — SubwordField + rich origin = emergence
 
-**next step:** Act 3 will add knowledge weights (pytorch wrapper selecting weights by mood). hybrid weightless + knowledge. perfect psychosis. coming soon™.
+**next step (historical note):** Act 3 was planned to add knowledge weights. This was completed - see "the three acts" section above for details on AdapterBank and mood-driven weight control.
 
 ---
 
