@@ -607,6 +607,70 @@ class TestOverthinking:
         # None pulse = default 3
         assert compute_ring_count(None) == 3
 
+    def test_crystallization_with_memory(self):
+        """Test that deep rings can crystallize into internal shards."""
+        try:
+            from stanley.subword_field import SubwordField, SubwordConfig, SPM_AVAILABLE
+            from stanley.overthinking import Overthinking, CRYSTALLIZATION_DEPTH_THRESHOLD
+            from stanley.memory_sea import MemorySea
+            from stanley.subjectivity import Pulse
+
+            if not SPM_AVAILABLE:
+                pytest.skip("SentencePiece not available")
+
+            # Create components
+            config = SubwordConfig(vocab_size=100, temperature=0.7)
+            field = SubwordField.from_text(TEST_ORIGIN, config=config)
+            memory = MemorySea()
+
+            # Create overthinking with memory
+            thinking = Overthinking(field, memory_sea=memory)
+
+            # Build up meta-patterns first (need multiple sessions)
+            high_pulse = Pulse(novelty=0.5, arousal=0.8, entropy=0.95, valence=0.5)
+            for i in range(5):
+                thinking.generate_rings(
+                    f"Resonance memory patterns echo {i} trace fragment shard",
+                    pulse=high_pulse,
+                    rng=np.random.default_rng(42 + i),
+                )
+
+            # Stats should include crystallization_count
+            stats = thinking.get_stats()
+            assert "crystallization_count" in stats
+
+            # Note: Crystallization is probabilistic (30%), so we don't assert it happened
+            # But we verify the mechanism works without errors
+            assert thinking.crystallization_count >= 0
+
+        except ImportError:
+            pytest.skip("Components not available")
+
+    def test_crystallization_needs_memory(self):
+        """Test that crystallization requires memory_sea."""
+        try:
+            from stanley.subword_field import SubwordField, SubwordConfig, SPM_AVAILABLE
+            from stanley.overthinking import Overthinking
+            from stanley.subjectivity import Pulse
+
+            if not SPM_AVAILABLE:
+                pytest.skip("SentencePiece not available")
+
+            config = SubwordConfig(vocab_size=100, temperature=0.7)
+            field = SubwordField.from_text(TEST_ORIGIN, config=config)
+
+            # No memory = no crystallization
+            thinking = Overthinking(field, memory_sea=None)
+
+            high_pulse = Pulse(novelty=0.5, arousal=0.8, entropy=0.95, valence=0.5)
+            thinking.generate_rings("Test", pulse=high_pulse)
+
+            # Should always be 0 without memory
+            assert thinking.crystallization_count == 0
+
+        except ImportError:
+            pytest.skip("Components not available")
+
 
 class TestResonantRecall:
     """

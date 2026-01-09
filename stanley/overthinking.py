@@ -5,6 +5,7 @@ Ported from Haze/Leo "circles on water" with Stanley-specific enhancements:
 - DYNAMIC ring count based on pulse entropy/arousal
 - Integration with SubwordField for coherent generation
 - Field enrichment through emergent patterns
+- CRYSTALLIZATION: Resonant rings become internal shards!
 
 The rings are PRIVATE REFLECTIONS - never shown to user.
 They influence the next generation through field state.
@@ -12,14 +13,21 @@ They influence the next generation through field state.
 KEY INSIGHT: The internal world becomes RICHER than the training data!
 Rings generate NEW patterns that are injected back into the field.
 
+CRYSTALLIZATION (Stanley innovation):
+    Highly resonant rings (depth >= 3, many meta-patterns) can
+    crystallize into "internal shards" — Stanley's own memories
+    of his thoughts. These are tagged "internal" and join MemorySea.
+
+    experience → external shards (what happened)
+    overthinking → internal shards (what Stanley thought)
+
+    Both types can be recalled and influence training!
+
 Dynamic Ring Count (Stanley innovation):
     - Low entropy (< 0.3): 1 ring (Echo only - stay grounded)
     - Medium entropy (0.3-0.6): 2 rings (Echo + Drift)
     - High entropy (0.6-0.8): 3 rings (Echo + Drift + Shard)
     - Very high entropy (> 0.8): 4-5 rings (deep reflection needed)
-
-    High arousal also increases ring count - emotional intensity
-    requires more inner processing.
 
 "The model thinks about what it just said."
 """
@@ -36,8 +44,16 @@ import logging
 if TYPE_CHECKING:
     from .subword_field import SubwordField
     from .subjectivity import Pulse
+    from .memory_sea import MemorySea
 
 logger = logging.getLogger(__name__)
+
+# Crystallization threshold - rings with this many meta-patterns crystallize
+CRYSTALLIZATION_META_THRESHOLD = 3
+# Minimum ring depth for crystallization
+CRYSTALLIZATION_DEPTH_THRESHOLD = 3
+# Probability of crystallization when thresholds are met
+CRYSTALLIZATION_PROBABILITY = 0.3
 
 
 # Ring configuration - temperatures increase with depth
@@ -216,14 +232,17 @@ class Overthinking:
     def __init__(
         self,
         subword_field: "SubwordField",
+        memory_sea: Optional["MemorySea"] = None,
     ):
         """
         Initialize overthinking module.
 
         Args:
             subword_field: SubwordField for generation AND enrichment
+            memory_sea: Optional MemorySea for crystallization
         """
         self.field = subword_field
+        self.memory = memory_sea  # For crystallization
 
         # Ring history (for meta-analysis)
         self.ring_history: List[RingsSnapshot] = []
@@ -237,6 +256,9 @@ class Overthinking:
 
         # Track ring depth over time
         self.depth_history: List[int] = []
+
+        # Crystallization stats
+        self.crystallization_count: int = 0
 
     def _extract_trigrams(self, text: str) -> List[Tuple[str, str, str]]:
         """Extract trigrams from text."""
@@ -429,6 +451,11 @@ class Overthinking:
 
         logger.debug(f"Field enrichment: +{total_injected} patterns from {num_rings} rings")
 
+        # CRYSTALLIZATION: Deep reflections become internal shards!
+        crystallized = self._crystallize_snapshot(snapshot, rng)
+        if crystallized:
+            logger.debug(f"Ring snapshot crystallized into internal shard!")
+
         return snapshot
 
     def _update_meta_patterns(self, snapshot: RingsSnapshot) -> None:
@@ -448,6 +475,95 @@ class Overthinking:
 
         # Keep reasonable size
         self.meta_patterns = self.meta_patterns[-100:]
+
+    def _crystallize_snapshot(
+        self,
+        snapshot: RingsSnapshot,
+        rng: Optional[np.random.Generator] = None,
+    ) -> bool:
+        """
+        Crystallize a deep/resonant snapshot into an internal shard.
+
+        CRYSTALLIZATION: When overthinking is deep and rich with meta-patterns,
+        the reflection crystallizes into Stanley's own memory — an "internal shard".
+
+        These internal shards:
+        - Are tagged "internal" to distinguish from external experience
+        - Join MemorySea and can be recalled/trained on
+        - Represent Stanley's THOUGHTS about things, not just what happened
+
+        Args:
+            snapshot: The ring snapshot to potentially crystallize
+            rng: Random generator
+
+        Returns:
+            True if crystallized, False otherwise
+        """
+        if self.memory is None:
+            return False  # No memory sea = no crystallization
+
+        rng = rng or np.random.default_rng()
+
+        # Check depth threshold
+        if snapshot.depth < CRYSTALLIZATION_DEPTH_THRESHOLD:
+            return False
+
+        # Check meta-patterns threshold
+        # Count meta-patterns that appeared in THIS snapshot
+        snapshot_words = set()
+        for ring in snapshot.rings:
+            words = set(re.findall(r'\b\w+\b', ring.content.lower()))
+            snapshot_words.update(words)
+
+        # Count how many of our meta-patterns are in this snapshot
+        meta_in_snapshot = len([p for p in self.meta_patterns if p in snapshot_words])
+
+        if meta_in_snapshot < CRYSTALLIZATION_META_THRESHOLD:
+            return False
+
+        # Probabilistic crystallization
+        if rng.random() > CRYSTALLIZATION_PROBABILITY:
+            return False
+
+        # CRYSTALLIZE! Create internal shard
+        # Combine content from all rings (weighted by depth)
+        combined_content = []
+        for ring in snapshot.rings:
+            # Deeper rings contribute more to the crystal
+            weight = ring.level + 1
+            combined_content.extend([ring.content] * weight)
+
+        crystal_content = " ".join(combined_content)
+
+        # Truncate if too long
+        if len(crystal_content) > 500:
+            crystal_content = crystal_content[:500]
+
+        # Compute resonance score based on depth and meta-patterns
+        resonance = min(1.0, 0.3 + snapshot.depth * 0.1 + meta_in_snapshot * 0.05)
+
+        # Import Shard here to avoid circular import
+        from .shard import Shard
+
+        # Create internal shard with special tags
+        shard = Shard.create(
+            content=crystal_content,
+            resonance=resonance,
+            layer_deltas={},  # Internal shards start without deltas
+            tags=["internal", "overthinking", f"depth_{snapshot.depth}"],
+        )
+
+        # Add to memory sea surface
+        self.memory.surface.append(shard)
+        self.crystallization_count += 1
+
+        logger.info(
+            f"Crystallized internal shard: id={shard.id}, "
+            f"depth={snapshot.depth}, resonance={resonance:.2f}, "
+            f"meta_patterns={meta_in_snapshot}"
+        )
+
+        return True
 
     def get_field_influence(self) -> Dict:
         """
@@ -558,6 +674,7 @@ class Overthinking:
             "average_depth": round(avg_depth, 2),
             "recent_depths": self.depth_history[-10:] if self.depth_history else [],
             "sample_emergent": self.emergent_trigrams[-5:] if self.emergent_trigrams else [],
+            "crystallization_count": self.crystallization_count,
         }
 
     def __repr__(self) -> str:
@@ -582,8 +699,12 @@ class AsyncOverthinking:
     Use this when running Stanley in async contexts (servers, etc.)
     """
 
-    def __init__(self, subword_field: "SubwordField"):
-        self._sync = Overthinking(subword_field)
+    def __init__(
+        self,
+        subword_field: "SubwordField",
+        memory_sea: Optional["MemorySea"] = None,
+    ):
+        self._sync = Overthinking(subword_field, memory_sea)
         self._field_lock = asyncio.Lock()
 
     @property
@@ -605,6 +726,10 @@ class AsyncOverthinking:
     @property
     def depth_history(self) -> List[int]:
         return self._sync.depth_history
+
+    @property
+    def crystallization_count(self) -> int:
+        return self._sync.crystallization_count
 
     async def generate_rings(
         self,
@@ -649,3 +774,13 @@ if __name__ == "__main__":
     print("  Very high (>0.8): 4-5 rings")
     print()
     print("Rings enrich the field - internal world becomes richer than dataset!")
+    print()
+    print("CRYSTALLIZATION (Stanley innovation):")
+    print(f"  Meta threshold: {CRYSTALLIZATION_META_THRESHOLD}")
+    print(f"  Depth threshold: {CRYSTALLIZATION_DEPTH_THRESHOLD}")
+    print(f"  Probability: {CRYSTALLIZATION_PROBABILITY}")
+    print()
+    print("  experience -> external shards (what happened)")
+    print("  overthinking -> internal shards (what Stanley thought)")
+    print()
+    print("  Both types can be recalled and influence training!")
