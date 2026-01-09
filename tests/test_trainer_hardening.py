@@ -575,13 +575,190 @@ class TestFuzzing:
                 assert np.isfinite(B).all(), f"NaN/Inf for config {config}"
 
 
+# ============= 9. PARAMETRIZED MATRIX (GPT's 150+ plan) =============
+
+class TestParametrizedMatrix:
+    """
+    MASSIVE parametrized test matrix.
+
+    GPT's recipe: parametrize across multiple dimensions to turn
+    10 tests into 150+ runs. This is the "gvozdi v beton" approach.
+    """
+
+    # Parameter spaces
+    RANKS = [1, 2, 4, 8]
+    LRS = [1e-5, 1e-4, 1e-3]
+    STEPS = [1, 3, 5]
+    BATCH_SIZES = [1, 2, 4]
+    SEEDS = list(range(20))  # 20 seeds for fuzzing
+
+    @pytest.mark.parametrize("rank,lr", [
+        (r, lr) for r in [1, 2, 4, 8] for lr in [1e-5, 1e-4, 1e-3]
+    ])
+    def test_rank_lr_matrix(self, vocab, base_weights, rank, lr):
+        """Test all rank x learning_rate combinations."""
+        from stanley.trainer import compute_lora_delta, LoRAConfig
+
+        config = LoRAConfig(rank=rank, learning_rate=lr, num_steps=3)
+        content = "Matrix test: rank and learning rate combinations"
+
+        deltas = compute_lora_delta(content, base_weights, vocab, config)
+
+        for name, (A, B) in deltas.items():
+            assert np.isfinite(A).all(), f"NaN/Inf at rank={rank}, lr={lr}"
+            assert np.isfinite(B).all(), f"NaN/Inf at rank={rank}, lr={lr}"
+            # Check rank dimension
+            assert A.shape[1] == rank or A.shape[0] == rank
+
+    @pytest.mark.parametrize("steps,batch_size", [
+        (s, b) for s in [1, 2, 5, 10] for b in [1, 2, 4]
+    ])
+    def test_steps_batch_matrix(self, vocab, base_weights, steps, batch_size):
+        """Test all steps x batch_size combinations."""
+        from stanley.trainer import compute_lora_delta, LoRAConfig
+
+        config = LoRAConfig(rank=4, num_steps=steps, batch_size=batch_size)
+        content = "Matrix test: steps and batch size combinations " * 10
+
+        deltas = compute_lora_delta(content, base_weights, vocab, config)
+
+        for name, (A, B) in deltas.items():
+            assert np.isfinite(A).all()
+            assert np.isfinite(B).all()
+
+    @pytest.mark.parametrize("seed", range(20))
+    def test_extended_fuzz_seeds(self, vocab, base_weights, lora_config, seed):
+        """Extended fuzzing with 20 different seeds."""
+        from stanley.trainer import compute_lora_delta
+
+        np.random.seed(seed * 7 + 13)  # Different seed sequence
+        torch.manual_seed(seed * 7 + 13)
+
+        # Generate varied content
+        patterns = [
+            lambda: "".join(chr(np.random.randint(32, 127)) for _ in range(np.random.randint(50, 200))),
+            lambda: " ".join(["word"] * np.random.randint(10, 50)),
+            lambda: "\n".join(["line " + str(i) for i in range(np.random.randint(5, 20))]),
+            lambda: "!" * np.random.randint(10, 100) + " text " + "?" * np.random.randint(10, 100),
+        ]
+
+        content = patterns[seed % len(patterns)]()
+
+        deltas = compute_lora_delta(content, base_weights, vocab, lora_config)
+
+        for name, (A, B) in deltas.items():
+            assert np.isfinite(A).all(), f"NaN/Inf at seed={seed}"
+            assert np.isfinite(B).all(), f"NaN/Inf at seed={seed}"
+
+    @pytest.mark.parametrize("alpha", [1.0, 4.0, 8.0, 16.0, 32.0, 64.0])
+    def test_alpha_scaling(self, vocab, base_weights, alpha):
+        """Test various alpha scaling factors."""
+        from stanley.trainer import compute_lora_delta, LoRAConfig
+
+        config = LoRAConfig(rank=4, alpha=alpha, num_steps=3)
+        content = "Alpha scaling test"
+
+        deltas = compute_lora_delta(content, base_weights, vocab, config)
+
+        for name, (A, B) in deltas.items():
+            assert np.isfinite(A).all()
+            assert np.isfinite(B).all()
+            # Higher alpha should generally produce larger deltas
+            norm = np.linalg.norm(A) * np.linalg.norm(B)
+            assert norm < 500, f"Alpha={alpha} produced too large delta: {norm}"
+
+    @pytest.mark.parametrize("content_multiplier", [1, 5, 10, 20, 50])
+    def test_content_length_scaling(self, vocab, base_weights, lora_config, content_multiplier):
+        """Test with varying content lengths."""
+        from stanley.trainer import compute_lora_delta
+
+        base_content = "Resonance patterns in consciousness and memory. "
+        content = base_content * content_multiplier
+
+        deltas = compute_lora_delta(content, base_weights, vocab, lora_config)
+
+        for name, (A, B) in deltas.items():
+            assert np.isfinite(A).all()
+            assert np.isfinite(B).all()
+
+    @pytest.mark.parametrize("rank,steps,lr", [
+        (r, s, lr)
+        for r in [2, 4, 8]
+        for s in [2, 5]
+        for lr in [1e-4, 1e-3]
+    ])
+    def test_triple_matrix(self, vocab, base_weights, rank, steps, lr):
+        """Triple parameter matrix: rank x steps x lr."""
+        from stanley.trainer import compute_lora_delta, LoRAConfig
+
+        config = LoRAConfig(rank=rank, num_steps=steps, learning_rate=lr)
+        content = "Triple matrix test for comprehensive coverage"
+
+        deltas = compute_lora_delta(content, base_weights, vocab, config)
+
+        # All deltas must be finite
+        for name, (A, B) in deltas.items():
+            assert np.isfinite(A).all()
+            assert np.isfinite(B).all()
+
+        # Verify correct shapes
+        for name, (A, B) in deltas.items():
+            assert A.shape[1] == rank or B.shape[0] == rank
+
+
+class TestEdgeCasesExtended:
+    """Extended edge case testing."""
+
+    @pytest.mark.parametrize("special_content", [
+        "",  # empty
+        " ",  # single space
+        "\n",  # single newline
+        "\t",  # single tab
+        "a",  # single char
+        "ab",  # two chars
+        "   ",  # multiple spaces
+        "\n\n\n",  # multiple newlines
+        "a b c",  # minimal words
+        "." * 100,  # all punctuation
+        "1" * 100,  # all digits
+        "A" * 100,  # all same letter
+        "aA" * 50,  # alternating case
+        " a " * 50,  # padded chars
+    ])
+    def test_special_content_patterns(self, vocab, base_weights, lora_config, special_content):
+        """Test special content patterns don't crash."""
+        from stanley.trainer import compute_lora_delta
+
+        deltas = compute_lora_delta(special_content, base_weights, vocab, lora_config)
+
+        assert isinstance(deltas, dict)
+        for name, (A, B) in deltas.items():
+            assert np.isfinite(A).all()
+            assert np.isfinite(B).all()
+
+    @pytest.mark.parametrize("dropout", [0.0, 0.1, 0.3, 0.5])
+    def test_dropout_variations(self, vocab, base_weights, dropout):
+        """Test different dropout rates."""
+        from stanley.trainer import compute_lora_delta, LoRAConfig
+
+        config = LoRAConfig(rank=4, dropout=dropout, num_steps=5)
+        content = "Dropout variation test for regularization"
+
+        # Run multiple times to test dropout randomness
+        for _ in range(3):
+            deltas = compute_lora_delta(content, base_weights, vocab, config)
+            for name, (A, B) in deltas.items():
+                assert np.isfinite(A).all()
+                assert np.isfinite(B).all()
+
+
 # ============= SUMMARY =============
 
 class TestHardeningSummary:
     """Meta-test to verify test coverage."""
 
     def test_all_attack_vectors_covered(self):
-        """Verify we hit all 8 attack vectors."""
+        """Verify we hit all 8+ attack vectors."""
         vectors = [
             "TestDeterminism",          # 1
             "TestNumericalStability",   # 2
@@ -591,6 +768,8 @@ class TestHardeningSummary:
             "TestBadBatches",           # 6
             "TestQualityGates",         # 7
             "TestFuzzing",              # 8
+            "TestParametrizedMatrix",   # 9 - GPT's 150+ plan
+            "TestEdgeCasesExtended",    # 10 - Extended edge cases
         ]
 
         # Just verify these classes exist
