@@ -172,6 +172,98 @@ class TestCleanup:
         assert result[0].isupper()
 
 
+class TestCooccurField:
+    """Test CooccurField — emergence through co-occurrence."""
+
+    def test_field_creation(self):
+        """Test creating field from text."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        stats = field.stats()
+        assert stats["total_tokens"] > 0
+        assert stats["unique_bigrams"] > 0
+        assert stats["shard_contributions"] == 0
+
+    def test_observe_text(self):
+        """Test learning from text."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Observe new text
+        new_text = "Stanley grows through resonance and memory."
+        patterns = field.observe_text(new_text, vocab, weight=1.5)
+
+        assert patterns >= 0
+        stats = field.stats()
+        # Total tokens should increase
+        assert stats["total_tokens"] > len(vocab.encode(TEST_ORIGIN))
+
+    def test_observe_shard(self):
+        """Test learning from shard — THIS IS THE KEY!"""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+        from stanley.shard import Shard
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Create a shard
+        shard = Shard.create(
+            content="I resonate deeply with this experience.",
+            resonance=0.9,
+            layer_deltas={},
+            fingerprint=np.zeros(64),
+        )
+
+        # Observe shard
+        patterns = field.observe_shard(shard, vocab)
+
+        assert patterns >= 0
+        stats = field.stats()
+        assert stats["shard_contributions"] == 1
+        assert stats["avg_resonance"] == pytest.approx(0.9, rel=0.1)
+
+    def test_bias_logits(self):
+        """Test that field biases logits."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Random logits
+        logits = np.random.randn(vocab.vocab_size).astype(np.float32)
+        context = vocab.encode("I am")
+
+        # Bias logits
+        biased = field.bias_logits(logits, context, alpha=0.3)
+
+        # Should be different from original
+        assert not np.allclose(logits, biased)
+
+    def test_resonance_between(self):
+        """Test measuring resonance between tokens."""
+        from stanley.cooccur import CooccurField
+        from stanley.inference import Vocab
+
+        vocab = Vocab.from_text(TEST_ORIGIN)
+        field = CooccurField.from_text(TEST_ORIGIN, vocab)
+
+        # Get tokens that appear together
+        i_token = vocab.encode("I")[0]
+
+        # Should have some resonance with nearby tokens
+        top = field.top_resonant(i_token, k=5)
+        assert len(top) > 0
+
+
 class TestShard:
     """Test memory shards."""
 
