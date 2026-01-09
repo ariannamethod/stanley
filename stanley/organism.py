@@ -58,6 +58,7 @@ from .cooccur import CooccurField, CooccurConfig
 from .lexicon import Lexicon
 from .episodes import EpisodicMemory, Episode, StanleyMetrics
 from .inner_voice import InnerVoice, InnerVoiceConfig
+from .dream import DreamStanley, DreamConfig
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,11 @@ class StanleyConfig:
 
     # Inner voice (self-evaluation)
     use_inner_voice: bool = True  # Enable MetaStanley's second breath
+
+    # DreamStanley (imaginary friend)
+    use_dream: bool = True  # Enable internal dialogue with imaginary friend
+    dream_on_stuck: bool = True  # Auto-dream when stuck
+    dream_on_novelty: bool = True  # Dream about novel concepts
 
     # Paths
     data_dir: Optional[str] = None
@@ -336,6 +342,21 @@ class Stanley:
                 cooccur_field=self.cooccur_field,
             )
             logger.info("Inner voice ready: second breath enabled")
+
+        # DreamStanley — imaginary friend for internal dialogue
+        self.dream: Optional[DreamStanley] = None
+        if self.config.use_dream and self.subword_field:
+            dream_cfg = DreamConfig(
+                dream_on_stuck=self.config.dream_on_stuck,
+                dream_on_novelty=self.config.dream_on_novelty,
+            )
+            self.dream = DreamStanley(
+                subword_field=self.subword_field,
+                cooccur_field=self.cooccur_field,
+                vocab=self.vocab,
+                config=dream_cfg,
+            )
+            logger.info("DreamStanley ready: imaginary friend enabled")
 
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
                    f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
@@ -712,6 +733,25 @@ class Stanley:
             )
             stats["inner_voice"] = self.inner_voice.stats()
 
+        # === AUTO-DREAM: Enter dream state if triggered ===
+        if self.dream and regulation:
+            should_dream, dream_reason = self.dream.should_dream(
+                novelty=pulse.novelty if pulse else 0,
+                stuck=regulation.stuck,
+            )
+            if should_dream:
+                if dream_reason == "stuck":
+                    dialogue = self.dream.dream_about_stuck(response[:50])
+                else:
+                    dialogue = self.dream.dream_about_novel(response[:50])
+                stats["dream"] = {
+                    "triggered": True,
+                    "reason": dream_reason,
+                    "turns": dialogue.turn_count,
+                    "enriched": dialogue.patterns_enriched,
+                }
+                logger.debug(f"Dream triggered ({dream_reason}): {dialogue.turn_count} turns")
+
         # === EPISODIC MEMORY: Record this moment for Self-RAG ===
         if self.episodic_memory and pulse:
             episode = Episode(
@@ -785,6 +825,7 @@ class Stanley:
             "body_sense": self.body_sense.get_stats() if self.body_sense else None,
             "semantic_drift": self.semantic_drift.get_stats() if self.semantic_drift else None,
             "somatic_memory": self.somatic_memory.get_stats() if self.somatic_memory else None,
+            "dream": self.dream.stats() if self.dream else None,
         }
 
     def save(self, path: Optional[str] = None):

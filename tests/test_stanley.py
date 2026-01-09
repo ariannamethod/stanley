@@ -1533,5 +1533,109 @@ class TestBodySense:
         assert "num_parameters" in stats
 
 
+class TestDreamStanley:
+    """Test DreamStanley — imaginary friend for internal dialogue."""
+
+    def test_dream_without_field(self):
+        """Test that dream handles missing subword_field gracefully."""
+        from stanley.dream import DreamStanley, DreamConfig
+
+        dreamer = DreamStanley()  # No fields
+        dialogue = dreamer.dream("test topic")
+
+        assert dialogue.topic == "test topic"
+        assert len(dialogue.turns) == 0  # Can't generate without field
+
+    def test_dream_config(self):
+        """Test DreamConfig defaults."""
+        from stanley.dream import DreamConfig
+
+        cfg = DreamConfig()
+
+        assert cfg.stanley_temperature == 0.75
+        assert cfg.friend_temperature == 0.9
+        assert cfg.max_turns == 8
+        assert cfg.min_turns == 2
+
+    def test_dream_turn_creation(self):
+        """Test DreamTurn dataclass."""
+        from stanley.dream import DreamTurn
+
+        turn = DreamTurn(
+            speaker="stanley",
+            text="I notice patterns.",
+            temperature=0.75,
+        )
+
+        assert turn.speaker == "stanley"
+        assert turn.text == "I notice patterns."
+        assert turn.temperature == 0.75
+        assert turn.timestamp > 0
+
+    def test_dream_dialogue_as_text(self):
+        """Test dialogue formatting."""
+        from stanley.dream import DreamTurn, DreamDialogue
+
+        turns = [
+            DreamTurn(speaker="stanley", text="Hello.", temperature=0.75),
+            DreamTurn(speaker="friend", text="Hi there.", temperature=0.9),
+        ]
+        dialogue = DreamDialogue(topic="greeting", turns=turns, total_duration=1.0)
+
+        text = dialogue.as_text()
+
+        assert "[Dream about: greeting]" in text
+        assert "Stanley: Hello." in text
+        assert "Friend: Hi there." in text
+
+    def test_should_dream_stuck(self):
+        """Test dream trigger on stuck state."""
+        from stanley.dream import DreamStanley, DreamConfig
+
+        cfg = DreamConfig(dream_on_stuck=True)
+        dreamer = DreamStanley(config=cfg)
+
+        should, reason = dreamer.should_dream(stuck=0.8)
+
+        assert should is True
+        assert reason == "stuck"
+
+    def test_should_dream_novelty(self):
+        """Test dream trigger on high novelty."""
+        from stanley.dream import DreamStanley, DreamConfig
+
+        cfg = DreamConfig(dream_on_novelty=True, novelty_threshold=0.7)
+        dreamer = DreamStanley(config=cfg)
+
+        should, reason = dreamer.should_dream(novelty=0.9)
+
+        assert should is True
+        assert reason == "novelty"
+
+    def test_should_not_dream_recent_topic(self):
+        """Test that recent topics don't trigger dreams."""
+        from stanley.dream import DreamStanley
+
+        dreamer = DreamStanley()
+        dreamer._recent_topics.append("memory")
+
+        should, reason = dreamer.should_dream(novelty=0.9, recent_topic="memory")
+
+        assert should is False
+        assert reason == "recent_topic"
+
+    def test_dream_stats(self):
+        """Test dream statistics."""
+        from stanley.dream import DreamStanley
+
+        dreamer = DreamStanley()
+        stats = dreamer.stats()
+
+        assert "total_dreams" in stats
+        assert "total_turns" in stats
+        assert "total_enriched_patterns" in stats
+        assert stats["total_dreams"] == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
