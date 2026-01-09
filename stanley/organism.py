@@ -36,6 +36,7 @@ from .trainer import (
     TORCH_AVAILABLE,
 )
 from .experience import ExperienceFilter, should_remember
+from .cleanup import cleanup_output, truncate_at_natural_end
 
 # Coherence and subjectivity — the key to Stanley's voice
 try:
@@ -456,6 +457,12 @@ class Stanley:
         for shard in self.engine.working_set:
             if isinstance(self.router, AdaptiveRouter):
                 self.router.mark_useful(shard.id)
+
+        # === CLEANUP: Apply Haze-style coherence magic ===
+        # 1. Truncate at natural sentence boundary (no trailing "...")
+        response = truncate_at_natural_end(response, max_length=len(response))
+        # 2. Fix contractions, repetitions, capitalization
+        response = cleanup_output(response, mode="moderate")
 
         return response, stats
 
