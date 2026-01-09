@@ -39,6 +39,7 @@ import logging
 if TYPE_CHECKING:
     from .inference import Vocab
     from .cooccur import CooccurField
+    from stanley_hybrid.external_brain import ExternalBrain
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ class InnerVoice:
         vocab: Optional["Vocab"] = None,
         cooccur_field: Optional["CooccurField"] = None,
         config: Optional[InnerVoiceConfig] = None,
+        external_brain: Optional["ExternalBrain"] = None,
     ):
         """
         Initialize Stanley's inner voice.
@@ -141,10 +143,12 @@ class InnerVoice:
             vocab: Vocabulary for encoding (optional)
             cooccur_field: Field to enrich with rejected patterns (optional)
             config: Configuration for inner voice behavior
+            external_brain: Optional ExternalBrain for hybrid evaluation
         """
         self.vocab = vocab
         self.field = cooccur_field
         self.cfg = config or InnerVoiceConfig()
+        self.external_brain = external_brain
 
         # Dynamic bootstrap buffer: recent fragments from Stanley's behavior
         self._bootstrap_buf: Deque[str] = deque(maxlen=self.cfg.max_bootstrap_snippets)
@@ -160,6 +164,7 @@ class InnerVoice:
         # Stats
         self.total_evaluations = 0
         self.total_enrichment_trigrams = 0
+        self.total_hybrid_steals = 0  # vocabulary stolen from external
 
     # ========================================================================
     # FEED — Update bootstrap buffer from interactions
@@ -488,12 +493,142 @@ class InnerVoice:
 
         return count
 
+    # ========================================================================
+    # HYBRID EVALUATION — Internal vs External brain
+    # ========================================================================
+
+    def evaluate_hybrid(
+        self,
+        prompt: str,
+        internal_response: str,
+        use_external: bool = True,
+    ) -> InnerVoiceResult:
+        """
+        Evaluate internal response against external brain (GPT-2).
+
+        Key insight: "GPT-2 — карьер слов, Stanley — архитектор."
+        - We DON'T let GPT-2 replace Stanley's response
+        - We STEAL vocabulary from GPT-2 if it's richer
+        - Stanley's internal response wins on DIRECTION
+        - GPT-2's response contributes WORDS
+
+        Args:
+            prompt: The original prompt
+            internal_response: Stanley's internal response
+            use_external: Whether to actually use external brain
+
+        Returns:
+            InnerVoiceResult (chosen is ALWAYS internal, but may be enriched)
+        """
+        # If no external brain or disabled, just score internal
+        if not use_external or not self.external_brain or not self.external_brain.loaded:
+            candidate = self.score_candidate(internal_response)
+            return InnerVoiceResult(
+                chosen=internal_response,
+                chosen_score=candidate.score,
+                rejected="",
+                rejected_score=0.0,
+                enrichment_trigrams=0,
+                generation_mode="internal_only",
+                meta_weight=0.0,
+            )
+
+        # Generate external response
+        external_response = self.external_brain.expand_thought(
+            prompt,
+            temperature=self.cfg.temp_b,
+            max_length=80,
+        )
+
+        # Score both
+        internal_candidate = self.score_candidate(internal_response, self.cfg.temp_a)
+        external_candidate = self.score_candidate(external_response, self.cfg.temp_b)
+
+        # ALWAYS choose internal for direction
+        # But steal vocabulary from external if it has interesting words
+        enrichment_count = 0
+        if external_candidate.trigrams:
+            enrichment_count = self._steal_vocabulary(external_candidate.trigrams)
+            self.total_hybrid_steals += enrichment_count
+
+        # Meta weight based on vocabulary richness of external
+        vocab_richness = external_candidate.resonance
+        meta_weight = min(0.3, vocab_richness * 0.5)
+
+        self.total_evaluations += 1
+
+        logger.debug(
+            f"Hybrid eval: internal={internal_candidate.score:.2f}, "
+            f"external={external_candidate.score:.2f}, "
+            f"stole {enrichment_count} patterns"
+        )
+
+        return InnerVoiceResult(
+            chosen=internal_response,  # Always internal!
+            chosen_score=internal_candidate.score,
+            rejected=external_response,  # External is "rejected" but contributes vocabulary
+            rejected_score=external_candidate.score,
+            enrichment_trigrams=enrichment_count,
+            generation_mode="hybrid",
+            meta_weight=meta_weight,
+        )
+
+    def _steal_vocabulary(self, trigrams: List[Tuple[str, str, str]]) -> int:
+        """
+        Steal vocabulary patterns from external response.
+
+        Different from _enrich_field: lower weight, focus on novel patterns.
+        """
+        if not self.field or not self.vocab:
+            return 0
+
+        count = 0
+        weight = 0.3  # Lower weight for stolen vocabulary
+
+        for tri in trigrams:
+            try:
+                w1_tokens = self.vocab.encode(tri[0])
+                w2_tokens = self.vocab.encode(tri[1])
+                w3_tokens = self.vocab.encode(tri[2])
+
+                if not w1_tokens or not w2_tokens or not w3_tokens:
+                    continue
+
+                last_w1 = w1_tokens[-1]
+                first_w2 = w2_tokens[0]
+                last_w2 = w2_tokens[-1]
+
+                # Only inject if pattern is somewhat novel
+                from collections import defaultdict
+                existing = self.field.bigram_counts.get(last_w1, {}).get(first_w2, 0)
+                if existing < 5:  # Novel pattern
+                    if last_w1 not in self.field.bigram_counts:
+                        self.field.bigram_counts[last_w1] = defaultdict(int)
+                    self.field.bigram_counts[last_w1][first_w2] += weight
+                    self.field.bigram_totals[last_w1] += weight
+                    count += 1
+
+            except Exception:
+                pass
+
+        return count
+
+    @property
+    def has_external(self) -> bool:
+        """Check if external brain is available."""
+        return (
+            self.external_brain is not None
+            and self.external_brain.loaded
+        )
+
     def stats(self) -> dict:
         """Get inner voice statistics."""
         return {
             "total_evaluations": self.total_evaluations,
             "total_enrichment_trigrams": self.total_enrichment_trigrams,
+            "total_hybrid_steals": self.total_hybrid_steals,
             "bootstrap_buffer_size": len(self._bootstrap_buf),
+            "has_external": self.has_external,
         }
 
     def __repr__(self) -> str:

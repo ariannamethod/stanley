@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from .cooccur import CooccurField
     from .inference import Vocab
     from .episodes import EpisodicMemory, StanleyMetrics
+    from stanley_hybrid.external_brain import ExternalBrain
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,10 @@ class DreamConfig:
     dream_on_stuck: bool = True            # Auto-dream when stuck
     dream_on_novelty: bool = True          # Dream about novel concepts
     novelty_threshold: float = 0.7         # How novel to trigger dream
+
+    # Hybrid mode (Friend uses ExternalBrain)
+    use_hybrid_friend: bool = True         # Friend speaks through GPT-2 if available
+    hybrid_steal_weight: float = 0.25      # Weight for vocabulary stolen from friend
 
 
 # ============================================================================
@@ -155,6 +160,7 @@ class DreamStanley:
         cooccur_field: Optional["CooccurField"] = None,
         vocab: Optional["Vocab"] = None,
         config: Optional[DreamConfig] = None,
+        external_brain: Optional["ExternalBrain"] = None,
     ):
         """
         Initialize DreamStanley.
@@ -164,11 +170,14 @@ class DreamStanley:
             cooccur_field: For enriching patterns from dialogue
             vocab: For encoding patterns
             config: Dream configuration
+            external_brain: Optional ExternalBrain for hybrid dreams
+                           (Friend speaks through GPT-2 for richer vocabulary)
         """
         self.subword_field = subword_field
         self.cooccur_field = cooccur_field
         self.vocab = vocab
         self.cfg = config or DreamConfig()
+        self.external_brain = external_brain
 
         # Dream history
         self._dream_history: deque = deque(maxlen=20)
@@ -177,6 +186,7 @@ class DreamStanley:
         self.total_dreams = 0
         self.total_turns = 0
         self.total_enriched_patterns = 0
+        self.total_hybrid_turns = 0  # Friend turns via ExternalBrain
 
         # Recent topics (to avoid repetition)
         self._recent_topics: deque = deque(maxlen=10)
@@ -224,17 +234,35 @@ class DreamStanley:
                 speaker = "stanley"
                 temp = self.cfg.stanley_temperature
                 seed = self._make_stanley_seed(context, topic)
+                # Stanley always speaks through internal field
+                response = self.subword_field.generate(
+                    seed_text=seed,
+                    length=self.cfg.response_length,
+                    temperature=temp,
+                )
             else:
                 speaker = "friend"
                 temp = self.cfg.friend_temperature
                 seed = self._make_friend_seed(context, topic)
 
-            # Generate response
-            response = self.subword_field.generate(
-                seed_text=seed,
-                length=self.cfg.response_length,
-                temperature=temp,
-            )
+                # Friend can speak through ExternalBrain (richer vocabulary)
+                if (self.cfg.use_hybrid_friend and
+                    self.external_brain is not None and
+                    self.external_brain.loaded):
+                    # Hybrid Friend — GPT-2 provides the words
+                    response = self.external_brain.expand_thought(
+                        seed,
+                        temperature=temp,
+                        max_length=self.cfg.response_length,
+                    )
+                    self.total_hybrid_turns += 1
+                else:
+                    # Internal Friend — same field, different temperature
+                    response = self.subword_field.generate(
+                        seed_text=seed,
+                        length=self.cfg.response_length,
+                        temperature=temp,
+                    )
 
             # Clean up response
             response = self._clean_response(response)
@@ -444,14 +472,25 @@ class DreamStanley:
     # STATS
     # ========================================================================
 
+    @property
+    def has_hybrid(self) -> bool:
+        """Check if hybrid mode is available."""
+        return (
+            self.cfg.use_hybrid_friend and
+            self.external_brain is not None and
+            self.external_brain.loaded
+        )
+
     def stats(self) -> dict:
         """Get dream statistics."""
         return {
             "total_dreams": self.total_dreams,
             "total_turns": self.total_turns,
             "total_enriched_patterns": self.total_enriched_patterns,
+            "total_hybrid_turns": self.total_hybrid_turns,
             "recent_dreams": len(self._dream_history),
             "recent_topics": list(self._recent_topics),
+            "has_hybrid": self.has_hybrid,
         }
 
     def get_recent_dream(self) -> Optional[DreamDialogue]:
