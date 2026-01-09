@@ -192,23 +192,27 @@ class AdapterBank:
             profile = MOOD_PROFILES[mood]
             layer_deltas = {}
 
-            for layer_name in self.cfg.target_modules:
-                if layer_name not in layer_dims:
+            # Match each full layer name against target modules
+            for full_name, (out_dim, in_dim) in layer_dims.items():
+                # Check if any target module matches this layer
+                is_target = any(target in full_name for target in self.cfg.target_modules)
+                if not is_target:
                     continue
 
-                out_dim, in_dim = layer_dims[layer_name]
                 rank = self.cfg.lora_rank
 
                 # Initialize A and B with small random values
-                # A is initialized to small random, B to zeros (standard LoRA init)
+                # For "pre-trained" mood adapters, both A and B are initialized
+                # (unlike standard LoRA training where B starts at 0)
                 A = np.random.randn(out_dim, rank).astype(np.float32) * self.cfg.init_std
-                B = np.zeros((rank, in_dim), dtype=np.float32)
+                B = np.random.randn(rank, in_dim).astype(np.float32) * self.cfg.init_std
 
                 # Modulate by mood profile
                 spread = profile["attention_spread"]
                 A *= spread
+                B *= spread
 
-                layer_deltas[layer_name] = (A, B)
+                layer_deltas[full_name] = (A, B)
 
             self.adapters[mood] = LoRAAdapter(
                 mood=mood,
