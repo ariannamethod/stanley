@@ -449,6 +449,85 @@ class TestEpisodicMemory:
         assert len(similar) == 2
 
 
+class TestInnerVoice:
+    """Test InnerVoice — Stanley's second breath."""
+
+    def test_voice_creation(self):
+        """Test creating inner voice."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+        assert voice.total_evaluations == 0
+
+    def test_score_candidate(self):
+        """Test scoring a single candidate."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Score a good response
+        candidate = voice.score_candidate(
+            "I am Stanley. I grow through resonance and memory.",
+            temperature=0.8,
+        )
+
+        assert 0 <= candidate.entropy <= 1
+        assert 0 <= candidate.coherence <= 1
+        assert 0 <= candidate.resonance <= 1
+        assert 0 <= candidate.score <= 1
+
+    def test_evaluate_two_candidates(self):
+        """Test evaluating two candidates."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Two different responses
+        response_a = "I am Stanley. I grow through experience."
+        response_b = "dfsakjf asjkdfh asjkdfhaskjfh"  # garbage
+
+        result = voice.evaluate(response_a, response_b, enrich_field=False)
+
+        # Should choose the coherent one
+        assert result.chosen == response_a
+        assert result.chosen_score > result.rejected_score
+        assert result.rejected == response_b
+
+    def test_compute_meta_weight(self):
+        """Test computing meta weight."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Low entropy → higher weight (rigid)
+        w_rigid = voice.compute_meta_weight(entropy=0.1, quality=0.5)
+
+        # Medium entropy → lower weight
+        w_medium = voice.compute_meta_weight(entropy=0.5, quality=0.5)
+
+        # Low quality → higher weight
+        w_low_quality = voice.compute_meta_weight(entropy=0.5, quality=0.2)
+
+        assert w_rigid > w_medium
+        assert w_low_quality > w_medium
+
+    def test_feed_bootstrap(self):
+        """Test feeding bootstrap buffer."""
+        from stanley.inner_voice import InnerVoice
+
+        voice = InnerVoice()
+
+        # Feed with high arousal
+        voice.feed("This is an emotional response!", arousal=0.8)
+
+        assert len(voice._bootstrap_buf) == 1
+
+        # Feed with low arousal (should not add)
+        voice.feed("Boring response.", arousal=0.3)
+
+        assert len(voice._bootstrap_buf) == 1
+
+
 class TestShard:
     """Test memory shards."""
 
