@@ -11,5 +11,6 @@ This module provides the "word stealing" capability:
 """
 
 from .external_brain import ExternalBrain, EXTERNAL_WEIGHTS_AVAILABLE
+from .vocabulary_thief import VocabularyThief
 
-__all__ = ["ExternalBrain", "EXTERNAL_WEIGHTS_AVAILABLE"]
+__all__ = ["ExternalBrain", "EXTERNAL_WEIGHTS_AVAILABLE", "VocabularyThief"]
