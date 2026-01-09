@@ -17,7 +17,8 @@ The result: coherent text from pure corpus statistics.
 
 from __future__ import annotations
 import numpy as np
-from collections import defaultdict
+import re
+from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
@@ -26,6 +27,12 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
+
+# Adaptive temperature thresholds (from Haze)
+ENTROPY_LOW_THRESHOLD = 0.5
+ENTROPY_HIGH_THRESHOLD = 1.5
+TEMP_INCREASE_FACTOR = 1.2
+TEMP_DECREASE_FACTOR = 0.8
 
 # SentencePiece is optional but recommended
 try:
@@ -293,19 +300,29 @@ class SubwordField:
         length: int = 100,
         temperature: Optional[float] = None,
         rng: Optional[np.random.Generator] = None,
+        adaptive_temp: bool = True,
+        target_entropy: float = 2.5,
     ) -> str:
         """
         Generate text purely from subword statistics.
 
         This is PURE CORPUS STATISTICS. No neural network.
         Yet it produces coherent, meaningful text.
+
+        Enhanced with Haze-style features:
+        - Natural sentence endings
+        - Adaptive temperature
+        - Loop avoidance
+        - Unknown marker cleanup
         """
         cfg = self.config
-        temp = temperature if temperature is not None else cfg.temperature
+        base_temp = temperature if temperature is not None else cfg.temperature
         rng = rng or np.random.default_rng()
 
         # Start from seed
         if seed_text:
+            # Normalize apostrophes
+            seed_text = seed_text.replace("'", "'").replace("'", "'")
             context = self.vocab.encode(seed_text)
         else:
             # Random start from common tokens
@@ -318,9 +335,32 @@ class SubwordField:
         recent = list(context[-cfg.repetition_window:])
         generated = []
 
-        for _ in range(length):
-            # Get probabilities
-            probs = self.get_next_probs(context, temp)
+        # Track for adaptive temperature and natural ending
+        recent_entropies = []
+        sentence_count = 0
+        min_tokens = 15  # Minimum before allowing natural end
+
+        for i in range(length):
+            # Calculate current entropy for adaptive temp
+            probs = self.get_next_probs(context, base_temp)
+            current_entropy = -np.sum(probs * np.log2(probs + 1e-10))
+            recent_entropies.append(current_entropy)
+
+            # Adaptive temperature (from Haze)
+            current_temp = base_temp
+            if adaptive_temp and len(recent_entropies) > 5:
+                avg_entropy = np.mean(recent_entropies[-5:])
+                if avg_entropy < target_entropy * ENTROPY_LOW_THRESHOLD:
+                    # Too deterministic, increase temp
+                    current_temp = base_temp * TEMP_INCREASE_FACTOR
+                elif avg_entropy > target_entropy * ENTROPY_HIGH_THRESHOLD:
+                    # Too random, decrease temp
+                    current_temp = base_temp * TEMP_DECREASE_FACTOR
+                current_temp = np.clip(current_temp, 0.3, 2.0)
+
+            # Get fresh probabilities with adjusted temp
+            if current_temp != base_temp:
+                probs = self.get_next_probs(context, current_temp)
 
             # Apply repetition penalty
             probs = self.apply_repetition_penalty(probs, recent, cfg.repetition_penalty)
@@ -335,7 +375,43 @@ class SubwordField:
             if len(recent) > cfg.repetition_window:
                 recent.pop(0)
 
-        return self.vocab.decode(generated)
+            # Check for natural sentence ending (from Haze)
+            if i >= min_tokens:
+                token_text = self.vocab.decode([int(next_token)])
+                # Check if token ends a sentence
+                if token_text.strip() in ['.', '!', '?', '."', '!"', '?"'] or \
+                   token_text.rstrip().endswith(('.', '!', '?')):
+                    sentence_count += 1
+                    # Stop after 2-3 complete sentences
+                    if sentence_count >= 2:
+                        break
+
+        # Decode result
+        result = self.vocab.decode(generated)
+
+        # Clean up unknown token markers (⁇) — Haze magic
+        result = re.sub(r"(\w)⁇(t|s|m|d|ll|ve|re)\b", r"\1'\2", result)
+        result = re.sub(r"(\w)\s*⁇\s*(t|s|m|d|ll|ve|re)\b", r"\1'\2", result)
+        result = result.replace(' ⁇ ', ' ')
+        result = result.replace('⁇', "'")
+
+        # Ensure punctuation at end
+        result = result.strip()
+        if result and result[-1] not in '.!?…':
+            # Find last sentence-ending punctuation
+            last_punct = -1
+            for j, char in enumerate(result):
+                if char in '.!?':
+                    last_punct = j
+
+            if last_punct > len(result) // 2:
+                # Cut at last complete sentence
+                result = result[:last_punct + 1]
+            else:
+                # Add period
+                result = result.rstrip(',;:') + '.'
+
+        return result
 
     def bias_logits(
         self,

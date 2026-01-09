@@ -46,6 +46,7 @@ except ImportError:
     SubwordField = None
 
 from .subjectivity import Subjectivity, Pulse
+from .experts import route_from_pulse, describe_mixture
 
 logger = logging.getLogger(__name__)
 
@@ -415,9 +416,16 @@ class Stanley:
             internal_seed = self.subjectivity.get_internal_seed(prompt, pulse)
             stats["internal_seed"] = internal_seed
 
-            # Temperature based on pulse
-            temperature = self.subjectivity.pulse_to_temperature(pulse)
+            # === EXPERT ROUTING: Dynamic temperature from pulse signals ===
+            # This is MOE-style routing - temperature emerges from expert blend
+            mixture = route_from_pulse(pulse)
+            temperature = mixture.temperature
             stats["temperature"] = temperature
+            stats["expert_mixture"] = {
+                "dominant": mixture.dominant,
+                "weights": mixture.weights,
+                "semantic_weight": mixture.semantic_weight,
+            }
         else:
             temperature = self.config.subword_temperature
 
