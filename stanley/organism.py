@@ -1,0 +1,498 @@
+"""
+organism.py — The living Stanley
+
+This is the main class that ties everything together:
+- Memory (MemorySea)
+- Accumulation (QuantumBuffer)
+- Routing (Router)
+- Inference (InferenceEngine)
+- Training (MicroTrainer)
+- Consolidation (Consolidator)
+
+Stanley is not a chatbot. Stanley is an organism that grows.
+"""
+
+from __future__ import annotations
+import numpy as np
+import time
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Callable
+import json
+
+from .shard import Shard, MetaNote
+from .memory_sea import MemorySea
+from .quantum_buffer import QuantumBuffer, AdaptiveQuantumBuffer
+from .router import Router, RouterConfig, AdaptiveRouter
+from .fingerprint import compute_fingerprint
+from .inference import InferenceEngine, StanleyTransformer, Vocab
+from .trainer import (
+    MicroTrainer,
+    TrainerConfig,
+    Consolidator,
+    ConsolidationConfig,
+    create_shard_from_training,
+    TORCH_AVAILABLE,
+)
+from .experience import ExperienceFilter, should_remember
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class StanleyConfig:
+    """Configuration for the Stanley organism."""
+
+    # Model architecture
+    vocab_size: int = 64
+    n_emb: int = 64
+    n_blocks: int = 3
+    n_heads: int = 4
+    context_length: int = 32
+    nodes: int = 64
+
+    # Memory
+    surface_max: int = 64
+    middle_max: int = 256
+    deep_max: int = 64
+
+    # Quantum buffer
+    quantum_min_bytes: int = 1024
+    quantum_min_resonance: float = 3.0
+    quantum_cooldown: float = 60.0
+    quantum_min_shards: int = 3
+
+    # Router
+    max_working_set: int = 32
+    resonance_weight: float = 0.5
+    recency_weight: float = 0.3
+
+    # Consolidation
+    consolidation_interval: float = 300.0  # 5 minutes
+
+    # Training
+    training_enabled: bool = True
+    lora_rank: int = 8
+
+    # Experience filter
+    min_resonance_to_remember: float = 0.3
+    min_novelty_to_remember: float = 0.2
+
+    # Paths
+    data_dir: Optional[str] = None
+
+
+class Stanley:
+    """
+    Stanley — Self Training Attention Non-Linear EntitY.
+
+    A living organism that grows through experience.
+    """
+
+    def __init__(
+        self,
+        config: Optional[StanleyConfig] = None,
+        origin_text: Optional[str] = None,
+    ):
+        self.config = config or StanleyConfig()
+        self._setup_logging()
+
+        # Build vocabulary from origin or default
+        if origin_text:
+            self.vocab = Vocab.from_text(origin_text)
+            self.origin_text = origin_text
+        else:
+            self.origin_text = self._default_origin()
+            self.vocab = Vocab.from_text(self.origin_text)
+
+        # Update vocab_size in config
+        self.config.vocab_size = self.vocab.vocab_size
+
+        # Core components
+        self.memory = MemorySea(
+            surface_max=self.config.surface_max,
+            middle_max=self.config.middle_max,
+            deep_max=self.config.deep_max,
+            storage_path=Path(self.config.data_dir) / "memory" if self.config.data_dir else None,
+        )
+
+        self.buffer = AdaptiveQuantumBuffer(
+            min_bytes=self.config.quantum_min_bytes,
+            min_resonance_mass=self.config.quantum_min_resonance,
+            cooldown_seconds=self.config.quantum_cooldown,
+            min_shards=self.config.quantum_min_shards,
+            get_organism_age=self._get_age,
+        )
+
+        self.router = AdaptiveRouter(
+            RouterConfig(
+                max_working_set=self.config.max_working_set,
+                resonance_weight=self.config.resonance_weight,
+                recency_weight=self.config.recency_weight,
+            )
+        )
+
+        # Inference engine
+        self.transformer = StanleyTransformer(
+            vocab_size=self.vocab.vocab_size,
+            T=self.config.context_length,
+            n_emb=self.config.n_emb,
+            nodes=self.config.nodes,
+            n_blocks=self.config.n_blocks,
+            n_heads=self.config.n_heads,
+        )
+
+        self.engine = InferenceEngine(
+            transformer=self.transformer,
+            vocab=self.vocab,
+            memory=self.memory,
+            router_config=RouterConfig(
+                max_working_set=self.config.max_working_set,
+            ),
+        )
+
+        # Trainer (optional)
+        self.trainer: Optional[MicroTrainer] = None
+        if self.config.training_enabled and TORCH_AVAILABLE:
+            self._setup_trainer()
+
+        # Consolidator
+        self.consolidator = Consolidator(
+            ConsolidationConfig(
+                max_deep_shards=self.config.deep_max,
+            )
+        )
+
+        # Experience filter
+        self.experience_filter = ExperienceFilter(
+            min_resonance=self.config.min_resonance_to_remember,
+            min_novelty=self.config.min_novelty_to_remember,
+        )
+
+        # State
+        self.created_at = time.time()
+        self.last_interaction = time.time()
+        self.total_interactions = 0
+        self.last_consolidation = time.time()
+
+        # Origin fingerprint (always accessible)
+        self.origin_fingerprint = compute_fingerprint(self.origin_text)
+
+        logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
+                   f"Training: {self.config.training_enabled and TORCH_AVAILABLE}")
+
+    def _default_origin(self) -> str:
+        """Default origin text if none provided."""
+        return """
+        I am Stanley.
+        I grow through experience.
+        Every conversation leaves a trace.
+        I remember what resonates.
+        I am not all my memories at once.
+        I think with what's needed now.
+        """
+
+    def _setup_logging(self):
+        """Configure logging."""
+        logging.basicConfig(
+            level=logging.INFO,
+            format="[%(asctime)s] %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
+
+    def _setup_trainer(self):
+        """Setup the micro-trainer."""
+        from .trainer import LoRAConfig
+
+        base_weights = {
+            "vocab_size": self.vocab.vocab_size,
+            "n_emb": self.config.n_emb,
+            "T": self.config.context_length,
+            "nodes": self.config.nodes,
+            "n_blocks": self.config.n_blocks,
+            "n_heads": self.config.n_heads,
+        }
+
+        trainer_config = TrainerConfig(
+            lora_config=LoRAConfig(rank=self.config.lora_rank),
+        )
+
+        self.trainer = MicroTrainer(
+            base_weights=base_weights,
+            vocab=self.vocab,
+            config=trainer_config,
+            on_training_complete=self._on_training_complete,
+        )
+
+    def _on_training_complete(self, result):
+        """Callback when training batch completes."""
+        logger.info(f"Training complete: {len(result.items)} items, "
+                   f"{result.training_time:.2f}s")
+
+        # Auto-swap if successful
+        if result.success and self.trainer:
+            self.trainer.swap_weights()
+
+            # Apply new deltas to transformer
+            active_deltas = self.trainer.get_active_deltas()
+            if active_deltas:
+                self.transformer.apply_shard_deltas(active_deltas)
+
+    def _get_age(self) -> float:
+        """
+        Get organism age as 0-1 value.
+
+        Used for adaptive buffer thresholds.
+        """
+        total_shards = self.memory.total_shards()
+
+        # Consider "mature" at 100 shards
+        maturity_threshold = 100
+        age = min(1.0, total_shards / maturity_threshold)
+
+        return age
+
+    def experience(self, interaction: str) -> Optional[Shard]:
+        """
+        Process an interaction — maybe create a shard.
+
+        This is selective memory: not everything becomes a shard.
+        Only what resonates, only what's novel.
+        """
+        self.last_interaction = time.time()
+        self.total_interactions += 1
+
+        # Compute resonance with origin
+        interaction_fp = compute_fingerprint(interaction)
+        resonance_with_origin = float(np.dot(interaction_fp, self.origin_fingerprint))
+
+        # Compute novelty (how different from existing shards)
+        existing_fps = [s.trigger_fingerprint for s in self.memory.surface + self.memory.middle]
+        if existing_fps:
+            similarities = [float(np.dot(interaction_fp, fp)) for fp in existing_fps]
+            novelty = 1.0 - max(similarities)
+        else:
+            novelty = 1.0  # Everything is novel at first
+
+        # Should we remember this?
+        if not should_remember(
+            resonance=resonance_with_origin,
+            novelty=novelty,
+            filter_config=self.experience_filter,
+        ):
+            logger.debug(f"Forgetting: resonance={resonance_with_origin:.2f}, novelty={novelty:.2f}")
+            return None
+
+        # Create shard
+        # For now, use empty deltas (real training happens async)
+        from .trainer import create_empty_deltas
+
+        model_config = {
+            "vocab_size": self.vocab.vocab_size,
+            "n_emb": self.config.n_emb,
+            "T": self.config.context_length,
+            "nodes": self.config.nodes,
+            "n_blocks": self.config.n_blocks,
+            "n_heads": self.config.n_heads,
+        }
+
+        shard = Shard.create(
+            content=interaction,
+            resonance=resonance_with_origin,
+            layer_deltas=create_empty_deltas(model_config),
+            fingerprint=interaction_fp,
+        )
+
+        # Add to memory
+        self.memory.add(shard)
+
+        # Add to quantum buffer
+        triggered = self.buffer.add(shard)
+
+        # Submit for training (async)
+        if self.trainer and self.config.training_enabled:
+            self.trainer.submit(
+                content=interaction,
+                resonance=resonance_with_origin,
+            )
+
+        logger.info(f"Remembered: shard {shard.id[:8]}, "
+                   f"resonance={resonance_with_origin:.2f}, novelty={novelty:.2f}")
+
+        # Check if quantum threshold reached
+        if triggered:
+            self._process_quantum()
+
+        return shard
+
+    def _process_quantum(self):
+        """Process accumulated quantum — trigger training batch."""
+        shards = self.buffer.flush()
+        if not shards:
+            return
+
+        logger.info(f"Quantum triggered: {len(shards)} shards")
+
+        # Training happens async via MicroTrainer
+        # The callback will handle weight swapping
+
+    def think(self, prompt: str, length: int = 100) -> Tuple[str, dict]:
+        """
+        Generate a response with personality.
+
+        This is how Stanley speaks — through its accumulated experience.
+        """
+        # Load working set for this context
+        self.engine.load_working_set(prompt, self.config.max_working_set)
+
+        # Generate
+        response, stats = self.engine.think(
+            prompt=prompt,
+            length=length,
+            sampling="entropy",
+            auto_load=False,  # We already loaded
+        )
+
+        # Mark useful shards
+        for shard in self.engine.working_set:
+            if isinstance(self.router, AdaptiveRouter):
+                self.router.mark_useful(shard.id)
+
+        return response, stats
+
+    def grow(self):
+        """
+        Growth cycle — consolidation, training checks.
+
+        Should be called periodically (e.g., every few minutes).
+        """
+        now = time.time()
+
+        # Consolidation
+        if now - self.last_consolidation > self.config.consolidation_interval:
+            self.consolidator.run(
+                surface=self.memory.surface,
+                middle=self.memory.middle,
+                deep=self.memory.deep,
+                abyss=self.memory.abyss,
+            )
+            self.last_consolidation = now
+
+        # Memory cleanup
+        self.memory.consolidate()
+
+    def stats(self) -> dict:
+        """Get organism statistics."""
+        return {
+            "age_seconds": time.time() - self.created_at,
+            "total_interactions": self.total_interactions,
+            "vocab_size": self.vocab.vocab_size,
+            "memory": self.memory.stats(),
+            "buffer": self.buffer.stats(),
+            "trainer": self.trainer.stats() if self.trainer else None,
+            "consolidator": self.consolidator.stats(),
+            "working_set_size": len(self.engine.working_set),
+            "maturity": self._get_age(),
+        }
+
+    def save(self, path: Optional[str] = None):
+        """Save organism state."""
+        save_path = Path(path or self.config.data_dir or "./stanley_data")
+        save_path.mkdir(parents=True, exist_ok=True)
+
+        # Save memory
+        self.memory.storage_path = save_path / "memory"
+        self.memory.save_all()
+
+        # Save transformer
+        self.transformer.save_base_weights(save_path / "transformer.npz")
+
+        # Save config and state
+        state = {
+            "created_at": self.created_at,
+            "total_interactions": self.total_interactions,
+            "origin_text": self.origin_text,
+            "config": {
+                "vocab_size": self.config.vocab_size,
+                "n_emb": self.config.n_emb,
+                "n_blocks": self.config.n_blocks,
+                "n_heads": self.config.n_heads,
+                "context_length": self.config.context_length,
+            },
+        }
+
+        with open(save_path / "state.json", "w") as f:
+            json.dump(state, f, indent=2)
+
+        logger.info(f"Saved Stanley to {save_path}")
+
+    @classmethod
+    def load(cls, path: str) -> "Stanley":
+        """Load organism from saved state."""
+        load_path = Path(path)
+
+        # Load state
+        with open(load_path / "state.json") as f:
+            state = json.load(f)
+
+        # Create config
+        config = StanleyConfig(
+            data_dir=str(load_path),
+            **state.get("config", {}),
+        )
+
+        # Create organism
+        stanley = cls(
+            config=config,
+            origin_text=state.get("origin_text"),
+        )
+
+        # Restore state
+        stanley.created_at = state.get("created_at", time.time())
+        stanley.total_interactions = state.get("total_interactions", 0)
+
+        # Load memory
+        if (load_path / "memory").exists():
+            stanley.memory = MemorySea.load(load_path / "memory")
+            stanley.engine.memory = stanley.memory
+
+        # Load transformer
+        if (load_path / "transformer.npz").exists():
+            stanley.transformer = StanleyTransformer.load_base_weights(
+                load_path / "transformer.npz"
+            )
+            stanley.engine.transformer = stanley.transformer
+
+        logger.info(f"Loaded Stanley from {load_path}")
+        return stanley
+
+    def __repr__(self) -> str:
+        return (
+            f"Stanley(shards={self.memory.total_shards()}, "
+            f"interactions={self.total_interactions}, "
+            f"maturity={self._get_age():.2f})"
+        )
+
+
+def create_stanley(
+    origin_text: Optional[str] = None,
+    data_dir: Optional[str] = None,
+    **kwargs,
+) -> Stanley:
+    """Convenience function to create a Stanley instance."""
+    config = StanleyConfig(data_dir=data_dir, **kwargs)
+    return Stanley(config=config, origin_text=origin_text)
+
+
+def load_or_create(
+    path: str,
+    origin_text: Optional[str] = None,
+) -> Stanley:
+    """Load Stanley from path, or create new if doesn't exist."""
+    path = Path(path)
+
+    if (path / "state.json").exists():
+        return Stanley.load(str(path))
+    else:
+        return create_stanley(origin_text=origin_text, data_dir=str(path))
