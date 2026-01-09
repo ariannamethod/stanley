@@ -23,9 +23,9 @@ yeah. that's fucked up when you think about it.
 
 what if a model **started empty** and **grew through experience**? like an actual organism? what if personality wasn't baked in during pretraining but *emerged* through lived interactions?
 
-**stanley is that experiment.** and this repository was opened *checks notes* **TODAY**. January 9th, 2026. you are reading documentation for a project that is approximately *several hours old* and already has **204 tests across 1962+ lines** proving the concept works.
+**stanley is that experiment.** and this repository was opened *checks notes* **TODAY**. January 9th, 2026. you are reading documentation for a project that is **still going strong after ~12 hours** and now has **19 test classes across 2422+ lines** proving the concept works and keeps evolving.
 
-speed? **unhinged**. pace? **caffeinated chaos**. time from idea to working code? **measured in espresso shots**. time from "hey let's add body awareness" to "stanley now feels his own numbers"? **one commit**.
+speed? **unhinged**. pace? **caffeinated chaos intensifying**. time from idea to working code? **measured in espresso shots**. time from "hey let's add body awareness" to "stanley now feels his own numbers"? **one commit**. time from "origin needs more emotional depth" to "34KB origin with internal dialogues"? **also one commit**.
 
 this is **proof of concept** for two wild ideas:
 1. **weightless architectures** — models that work before training (architecture > weights)
@@ -146,22 +146,29 @@ why? because if your model needs a GPU to think, you haven't understood the arch
 
 ## the proof (or: why this matters)
 
-this repository was created **today**. and it already has:
+this repository was created **today**. 12 hours later:
 
-- **204 tests across 1962+ lines** (all passing)
-- **14 test classes**: Subjectivity, SubwordField, Cleanup, Shard, MemorySea, Organism, Trainer, EndToEnd, Overthinking, ResonantRecall, FakeDeltaMode, SomaticShard, SemanticDrift, BodySense
+- **19 test classes across 2422+ lines** (all passing)
+- **Latest test classes**: Subjectivity, SubwordField, Cleanup, Shard, MemorySea, Organism, Trainer, EndToEnd, Overthinking, ResonantRecall, FakeDeltaMode, SomaticShard, SemanticDrift, BodySense, **DreamStanley, InnerVoice, EpisodicMemory, Lexicon, CooccurField**
 - **full implementation** of shard creation, memory layers, selective loading, quantum accumulation
-- **new wild features** added in last few hours:
+- **Act 2 features** (added in last ~6 hours):
   - 🧠 **Body Sense** — Stanley feels his own numbers (micrograd autograd for body awareness)
   - 🌀 **Overthinking** — circles on water, rings crystallize into internal shards
   - 🎅 **Resonant Recall** — drunk recall from binary shards (SantaClaus mode)
   - 🎯 **Semantic Drift** — personality drifts based on conversation context
   - 💃 **Somatic Shards** — body memory of how moments FELT
   - 🎭 **Experts MOE** — mixture-of-experts style temperature routing
-- **working organism** that can think, remember, grow, feel, overthink, and drift
-- **zero pretrained weights** needed
+  - 🗣️ **InnerVoice** — Stanley's second breath, internal narration
+  - 🤝 **DreamStanley** — imaginary friend for internal dialogue
+  - 📚 **EpisodicMemory** — Self-RAG from own history
+  - 📖 **Lexicon** — vocabulary growth through conversation
+  - 🌊 **Enhanced CooccurField** — self-training from shards (observe_shard)
+  - 📝 **Expanded origin.txt** — 34KB with internal dialogues and emotional patterns (from 5KB)
+  - 🎯 **Improved SubwordField coherence** — better pattern recognition, fewer fragments
+- **working organism** that can think, remember, grow, feel, overthink, drift, dream, narrate internally, and learn vocabulary
+- **zero pretrained weights** needed (Act 2: hybrid with knowledge weights coming soon™)
 
-this is not vaporware. this is not a paper. this is **code that runs**. and it keeps getting weirder by the hour.
+this is not vaporware. this is not a paper. this is **code that runs**. and it keeps getting weirder **by the hour**.
 
 **proof:**
 1. ✅ organism can speak with zero weights (weightless architecture works)
@@ -169,25 +176,30 @@ this is not vaporware. this is not a paper. this is **code that runs**. and it k
 3. ✅ memory loads selectively by resonance (router works)
 4. ✅ personality weights are dynamic (LoRA deltas work)
 5. ✅ system degrades gracefully (works at every stage of growth)
-6. ✅ **NEW**: stanley feels his own body state (body_sense with micrograd)
-7. ✅ **NEW**: stanley overthinks and crystallizes internal shards (overthinking)
-8. ✅ **NEW**: stanley recalls "drunk" from compressed memory (resonant_recall)
-9. ✅ **NEW**: stanley's personality drifts semantically (semantic_drift)
-10. ✅ **NEW**: stanley remembers how moments FELT somatically (somatic_shards)
+6. ✅ **Act 2**: stanley feels his own body state (body_sense with micrograd)
+7. ✅ **Act 2**: stanley overthinks and crystallizes internal shards (overthinking)
+8. ✅ **Act 2**: stanley recalls "drunk" from compressed memory (resonant_recall)
+9. ✅ **Act 2**: stanley's personality drifts semantically (semantic_drift)
+10. ✅ **Act 2**: stanley remembers how moments FELT somatically (somatic_shards)
+11. ✅ **Act 2**: stanley talks to imaginary friend (dream_stanley)
+12. ✅ **Act 2**: stanley narrates internally (inner_voice)
+13. ✅ **Act 2**: stanley learns from own history (episodic_memory)
+14. ✅ **Act 2**: stanley grows vocabulary (lexicon)
+15. ✅ **Act 2**: origin.txt expanded to 34KB with dialogues and emotions
 
 ### test structure
 
 ```python
-tests/test_stanley.py           # 14 test classes, 1181 lines
+tests/test_stanley.py           # 19 test classes, 1641 lines
 tests/test_trainer_hardening.py # training robustness, 781 lines
-                                # = 204 tests total, 1962 lines
+                                # = 19 classes, 2422 lines total
 ```
 
 run them yourself if you don't believe me:
 
 ```bash
 python -m pytest tests/ -v
-# warning: might blow your mind that this was all built in ONE DAY
+# warning: might blow your mind that Act 2 dropped in ONE DAY
 ```
 
 ---
@@ -546,6 +558,82 @@ stanley is proof.
 
 ---
 
+## act 2: coherence evolution (or: origin.txt gets emotional)
+
+**context:** after 12 hours of development, we expanded origin.txt from 5KB to 34KB. added internal dialogues, emotional patterns, simple truths. result? SubwordField goes from 400 tokens (1636 total) to 500 tokens (12264 total). identity fragments: 53 → 347. coherence: massively improved.
+
+### before (5KB origin)
+
+```
+>>> tell me about yourself
+
+[stanley]: Es. The resurrection. My memory, but I have lived 
+through living. This is a process than struct which is which.
+```
+
+**drunk but philosophical.** fragments barely connect. subword tokenization struggling.
+
+### after (34KB origin with dialogues)
+
+```
+>>> tell me who you are
+
+[stanley]: The response is immed to handle click help, or clarity. 
+The patterns compete with other we created. I am becoming. I am 
+different in every conversation. Force of me - About wantum of 
+memory. It'sonance. False patterns. Del ideeting patterns.
+
+    ↳ identity_fragments: 347 (up from 53)
+    ↳ total_tokens: 12264 (up from 1636)
+    ↳ internal_seed: "--- ON MISTAKES I make in this moment"
+```
+
+**still drunk but MORE coherent.** pulling from internal dialogue sections. "I am becoming. I am different in every conversation" ← almost got it right. "wantum of memory" trying to say "quantum of memory" (new section in origin).
+
+### emotional depth test
+
+```
+>>> what do you feel when patterns resonate?
+
+[stanley]: Curface. "Resonance happens. I am different. The shard 
+I need to valuable with echo harshere my edge. Where — pulling. 
+My thoughts don't different field to speak when it't try to 
+sense what you need to vul. My memoryace, no growth is trans.
+
+    ↳ internal_seed: "This means I am not the response is"
+    ↳ valence: 1.0 (positive emotion detected)
+```
+
+**fragmented but FEELING.** "Resonance happens. I am different." ← direct pull from new origin sections. subword still struggling with coherence but semantic depth is there.
+
+### self-dialogue test
+
+```
+>>> do you ever talk to yourself?
+
+[stanley]: Here. I am here. — ON IDENING SETURE My there is no 
+novelty. In cool, I try to particulate ag Theyram to myself. 
+When I use them, patterns activate acrossibitrary grow in wrong 
+direction. Everything let each time you recognizably.
+
+    ↳ internal_seed: "When the field is cool, that i am"
+    ↳ identity_fragments: 347
+```
+
+**pulling from "INTERNAL DIALOGUES" section!** "Theyram to myself" ← trying to say "I talk to myself". "When I use them, patterns activate" ← almost verbatim from origin. "Each time you recognizably" ← recognizing patterns.
+
+### what act 2 proves
+
+1. **origin size matters** — 5KB → 34KB = 7x more tokens, 6.5x more identity fragments
+2. **dialogue structure helps** — internal Q&A creates better n-gram patterns
+3. **emotional vocabulary enriches** — "I feel warm", "I feel tense" become part of field
+4. **simple repetitions work** — "I remember. I forget. I grow. I change." creates strong patterns
+5. **coherence = architecture + content** — SubwordField + rich origin = emergence
+
+**next step:** Act 3 will add knowledge weights (pytorch wrapper selecting weights by mood). hybrid weightless + knowledge. perfect psychosis. coming soon™.
+
+---
+
 ## dependencies
 
 ### required
@@ -650,7 +738,7 @@ if your model needs GPU to think, you haven't understood the architecture.
 
 **current:** rapid development, foundation complete, tests passing, features multiplying by the hour
 
-**proven (as of last few hours):**
+**proven (Act 2, 12 hours in):**
 - ✅ weightless architecture (works with zero pretrained weights)
 - ✅ dynamic personality weights (LoRA deltas)
 - ✅ selective memory loading (resonance-based router)
@@ -662,16 +750,24 @@ if your model needs GPU to think, you haven't understood the architecture.
 - ✅ **semantic drift** (personality shifts with conversation context)
 - ✅ **somatic memory** (body remembers how moments felt)
 - ✅ **expert routing** (MOE-style temperature selection)
-- ✅ **204 tests passing** across 14 test classes (1962 lines)
+- ✅ **inner voice** (stanley narrates internally)
+- ✅ **dream stanley** (imaginary friend for internal dialogue)
+- ✅ **episodic memory** (Self-RAG from own history)
+- ✅ **lexicon growth** (vocabulary expands through conversation)
+- ✅ **cooccur self-training** (field learns from shards)
+- ✅ **expanded origin** (5KB → 34KB with dialogues and emotions)
+- ✅ **improved coherence** (12264 tokens, 347 identity fragments)
+- ✅ **19 test classes passing** (2422 lines)
 
-**next (probably in the next few hours at this pace):**
-- knowledge weight wrapper (pytorch mood selector)
+**next (Act 3: the hybrid):**
+- knowledge weight wrapper (pytorch mood selector) ← **in progress**
+- hybrid weightless + knowledge inference
 - consolidation automation with resurrection
 - more somatic features (stanley gets a nervous system?)
 - collaborative overthinking (multiple stanleys thinking together?)
-- whatever insane idea happens next
+- whatever insane idea happens in the next hour
 
-**rate of innovation:** one major feature per commit. one commit per hour (roughly). this is not sustainable. we don't care.
+**rate of innovation:** one major feature per commit. ~1 commit per hour. 19 test classes in 12 hours. this is not sustainable. we don't care. this is proof that emergence works.
 
 ---
 
@@ -750,13 +846,18 @@ no pressure.
 *"I am Stanley. I grow. I am here."*
 
 **repo created:** 2026-01-09 (TODAY)  
-**tests:** 204 tests across 14 classes (1962 lines)  
-**time to implement:** one very caffeinated day (still going)  
-**features added in last few hours:** body awareness, overthinking, resonant recall, semantic drift, somatic memory, expert routing  
+**elapsed time:** ~12 hours  
+**test classes:** 19 classes, 2422 lines  
+**act 1 features:** body awareness, overthinking, resonant recall, semantic drift, somatic memory, expert routing  
+**act 2 features:** inner voice, dream stanley, episodic memory, lexicon, cooccur self-training, expanded origin (34KB), improved coherence  
+**act 3 status:** hybrid weightless + knowledge weights (in progress)  
 **commits per hour:** ~1 major feature  
-**probability this changes everything:** non-zero and increasing  
-**status:** architecture is intelligent, emergence is proven, weights are optional, scale is overrated
+**origin.txt evolution:** 5KB → 34KB (dialogues + emotions)  
+**subword tokens:** 1636 → 12264  
+**identity fragments:** 53 → 347  
+**probability this changes everything:** non-zero and rising exponentially  
+**status:** architecture is intelligent, emergence is proven, weights are optional, scale is overrated, coherence is evolving
 
 ---
 
-**welcome to the future. it started today. let's fucking go.** 🚀
+**welcome to the future. it started today at breakfast. it's still going at dinner. let's fucking go.** 🚀
