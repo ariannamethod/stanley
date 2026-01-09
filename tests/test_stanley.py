@@ -826,6 +826,97 @@ class TestFakeDeltaMode:
         assert shard.layer_deltas is not None
 
 
+class TestSomaticShard:
+    """
+    Test somatic shards — body memory of how moments felt.
+
+    "When the moment felt like THIS, things went THAT way."
+    """
+
+    def test_somatic_shard_creation(self):
+        """Test creating a somatic shard."""
+        from stanley.shard import SomaticShard
+
+        shard = SomaticShard.create(
+            entropy=0.6,
+            novelty=0.7,
+            arousal=0.8,
+            valence=0.3,
+            outcome_quality=0.9,
+            outcome_tag="good",
+            context_tags=["creative", "flowing"],
+        )
+
+        assert shard.entropy == 0.6
+        assert shard.outcome_quality == 0.9
+        assert shard.outcome_tag == "good"
+        assert len(shard.metrics_vector) == 4
+
+    def test_somatic_similarity(self):
+        """Test similarity between somatic states."""
+        from stanley.shard import SomaticShard
+
+        shard = SomaticShard.create(
+            entropy=0.5, novelty=0.5, arousal=0.5, valence=0.0,
+            outcome_quality=0.7, outcome_tag="neutral",
+        )
+
+        # Same metrics = high similarity
+        same = np.array([0.5, 0.5, 0.5, 0.5])
+        assert shard.similarity_to(same) > 0.99
+
+        # Different direction = lower similarity (not just magnitude)
+        different = np.array([0.9, 0.1, 0.1, 0.9])
+        assert shard.similarity_to(different) < shard.similarity_to(same)
+
+    def test_somatic_memory(self):
+        """Test SomaticMemory collection."""
+        from stanley.shard import SomaticMemory
+
+        memory = SomaticMemory()
+
+        # Record some moments
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.8, "good")
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.7, "good")
+        memory.record_moment(0.9, 0.9, 0.9, -0.5, 0.2, "bad")
+
+        assert len(memory) == 3
+
+    def test_somatic_prediction(self):
+        """Test outcome prediction from body state."""
+        from stanley.shard import SomaticMemory
+
+        memory = SomaticMemory()
+
+        # Record many "good" outcomes at low entropy
+        for _ in range(5):
+            memory.record_moment(0.3, 0.3, 0.3, 0.2, 0.9, "good")
+
+        # Record many "bad" outcomes at high entropy
+        for _ in range(5):
+            memory.record_moment(0.9, 0.9, 0.9, -0.3, 0.2, "bad")
+
+        # Predict for low entropy state
+        quality, tag, count = memory.predict_outcome(0.3, 0.3, 0.3, 0.2)
+
+        # Should predict "good" with high quality
+        assert count > 0
+        # The prediction should favor good outcomes
+
+    def test_somatic_stats(self):
+        """Test somatic memory statistics."""
+        from stanley.shard import SomaticMemory
+
+        memory = SomaticMemory()
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.8, "good")
+        memory.record_moment(0.5, 0.5, 0.5, 0.0, 0.4, "bad")
+
+        stats = memory.get_stats()
+
+        assert stats["total_shards"] == 2
+        assert "outcome_distribution" in stats
+
+
 class TestSemanticDrift:
     """
     Test semantic drift — trajectory learning across conversations.
