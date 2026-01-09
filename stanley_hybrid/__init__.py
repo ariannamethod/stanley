@@ -30,6 +30,11 @@ from .adapter_bank import (
     MixedAdapter,
     GPT2WeightPatcher,
     create_adapter_system,
+    # HyperLoRA (Act 4)
+    HyperMixer,
+    HyperLoRA,
+    HyperLoRATrainer,
+    create_hyperlora_system,
 )
 
 __all__ = [
@@ -51,4 +56,9 @@ __all__ = [
     "MixedAdapter",
     "GPT2WeightPatcher",
     "create_adapter_system",
+    # HyperLoRA (Act 4)
+    "HyperMixer",
+    "HyperLoRA",
+    "HyperLoRATrainer",
+    "create_hyperlora_system",
 ]

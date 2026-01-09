@@ -606,3 +606,408 @@ def create_adapter_system(
     patcher = GPT2WeightPatcher(model, mixed_adapter, update_every=cfg.mix_update_every)
 
     return bank, router, mixed_adapter, patcher
+
+
+# ============================================================================
+# HYPERLORA — Neural network that generates deltas from Stanley's state
+# ============================================================================
+
+class HyperMixer(nn.Module):
+    """
+    Stage 0.5: Learns to predict mood mix coefficients from Stanley signals.
+
+    Input: Stanley signals (14-dim vector)
+    Output: Mix coefficients α (8-dim, one per mood)
+
+    This is the "bridge" before full HyperLoRA — learns the mapping
+    from internal state to mood weights, replacing the hand-crafted MoodRouter.
+    """
+
+    def __init__(self, hidden_dim: int = 64):
+        super().__init__()
+
+        # Input: 14 signal dimensions
+        # arousal, entropy, novelty, tension, boredom, overthink_depth,
+        # drift_momentum, expert_temp, n_gravity, n_hot_words, n_spiral,
+        # n_surface, n_resonating, expert_is_creative
+        self.input_dim = 14
+        self.num_moods = 8
+
+        self.net = nn.Sequential(
+            nn.Linear(self.input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, self.num_moods),
+        )
+
+        # Mood order for output
+        self.mood_order = list(Mood)
+
+    def signals_to_tensor(self, signals: "StanleySignals") -> torch.Tensor:
+        """Convert StanleySignals to input tensor."""
+        features = torch.tensor([
+            signals.pulse_arousal,
+            signals.pulse_entropy,
+            signals.pulse_novelty,
+            signals.body_tension,
+            signals.body_boredom,
+            signals.overthink_depth / 10.0,  # Normalize
+            signals.drift_momentum,
+            signals.expert_temperature,
+            len(signals.gravity_centers) / 10.0,
+            len(signals.hot_words) / 5.0,
+            len(signals.spiral_topics) / 5.0,
+            len(signals.surface_keywords) / 5.0,
+            len(signals.resonating_tags) / 5.0,
+            1.0 if signals.active_expert == "creative" else 0.0,
+        ], dtype=torch.float32)
+        return features
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass, returns logits (apply softmax for probabilities)."""
+        return self.net(x)
+
+    def predict_mix(self, signals: "StanleySignals", temperature: float = 1.0) -> Dict[Mood, float]:
+        """Predict mix coefficients from signals."""
+        self.eval()
+        with torch.no_grad():
+            x = self.signals_to_tensor(signals).unsqueeze(0)
+            logits = self.forward(x)
+            probs = torch.softmax(logits / temperature, dim=-1).squeeze(0)
+
+            return {mood: probs[i].item() for i, mood in enumerate(self.mood_order)}
+
+
+class HyperLoRA(nn.Module):
+    """
+    Stage 1: Learns to generate LoRA deltas directly from Stanley signals.
+
+    Input: Stanley signals (14-dim)
+    Output: ΔA, ΔB matrices for each targeted layer
+
+    Architecture uses "basis adapters" approach:
+    - Pre-compute N basis deltas (like the mood adapters)
+    - HyperNet predicts combination weights + residual
+    - More efficient than generating full matrices
+
+    Training: Distillation from AdapterBank
+    - Teacher: bank.get_mixed_delta(layer) for various signal combinations
+    - Student: hyperlora.get_delta(signals, layer)
+    - Loss: MSE(student, teacher) + norm regularization
+    """
+
+    def __init__(
+        self,
+        bank: AdapterBank,
+        hidden_dim: int = 128,
+        num_basis: int = 8,  # Number of basis adapters (same as moods)
+    ):
+        super().__init__()
+
+        self.bank = bank
+        self.input_dim = 14
+        self.num_basis = num_basis
+        self.hidden_dim = hidden_dim
+
+        # Layer info
+        self.layer_names = list(bank.layer_dims.keys())
+        self.num_layers = len(self.layer_names)
+
+        # Main network: signals → basis coefficients for all layers
+        self.encoder = nn.Sequential(
+            nn.Linear(self.input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+        )
+
+        # Per-layer coefficient heads
+        # Output: num_basis coefficients per layer
+        self.coef_heads = nn.ModuleDict()
+        for name in self.layer_names:
+            # Sanitize layer name for ModuleDict
+            safe_name = name.replace(".", "_")
+            self.coef_heads[safe_name] = nn.Linear(hidden_dim, num_basis)
+
+        # Initialize basis from AdapterBank (frozen teacher knowledge)
+        self._init_basis_from_bank()
+
+        # Scaling factor
+        self.scale = bank.cfg.lora_alpha / bank.cfg.lora_rank
+
+    def _init_basis_from_bank(self):
+        """Initialize basis deltas from AdapterBank moods."""
+        self.basis_deltas = {}
+
+        for layer_name in self.layer_names:
+            basis_list = []
+            for mood in Mood:
+                adapter = self.bank.adapters[mood]
+                delta = adapter.get_delta(layer_name)
+                if delta is not None:
+                    basis_list.append(torch.from_numpy(delta).float())
+
+            if basis_list:
+                # Stack: (num_basis, out_dim, in_dim)
+                self.basis_deltas[layer_name] = torch.stack(basis_list)
+
+    def signals_to_tensor(self, signals: "StanleySignals") -> torch.Tensor:
+        """Convert StanleySignals to input tensor."""
+        features = torch.tensor([
+            signals.pulse_arousal,
+            signals.pulse_entropy,
+            signals.pulse_novelty,
+            signals.body_tension,
+            signals.body_boredom,
+            signals.overthink_depth / 10.0,
+            signals.drift_momentum,
+            signals.expert_temperature,
+            len(signals.gravity_centers) / 10.0,
+            len(signals.hot_words) / 5.0,
+            len(signals.spiral_topics) / 5.0,
+            len(signals.surface_keywords) / 5.0,
+            len(signals.resonating_tags) / 5.0,
+            1.0 if signals.active_expert == "creative" else 0.0,
+        ], dtype=torch.float32)
+        return features
+
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        Forward pass.
+
+        Args:
+            x: (batch, input_dim) signal tensor
+
+        Returns:
+            Dict mapping layer_name → (batch, out_dim, in_dim) delta tensor
+        """
+        # Encode signals
+        h = self.encoder(x)  # (batch, hidden_dim)
+
+        deltas = {}
+        for layer_name in self.layer_names:
+            safe_name = layer_name.replace(".", "_")
+
+            # Get coefficients for this layer
+            coefs = self.coef_heads[safe_name](h)  # (batch, num_basis)
+            coefs = torch.softmax(coefs, dim=-1)  # Normalize
+
+            # Get basis deltas
+            basis = self.basis_deltas[layer_name]  # (num_basis, out, in)
+
+            # Weighted combination: Σ coef_i * basis_i
+            # coefs: (batch, num_basis) → (batch, num_basis, 1, 1)
+            coefs_expanded = coefs.unsqueeze(-1).unsqueeze(-1)
+            # basis: (num_basis, out, in) → (1, num_basis, out, in)
+            basis_expanded = basis.unsqueeze(0)
+
+            # Combine: (batch, out, in)
+            delta = (coefs_expanded * basis_expanded).sum(dim=1)
+            deltas[layer_name] = self.scale * delta
+
+        return deltas
+
+    def get_delta(self, signals: "StanleySignals", layer_name: str) -> Optional[np.ndarray]:
+        """Get delta for a specific layer given signals."""
+        self.eval()
+        with torch.no_grad():
+            x = self.signals_to_tensor(signals).unsqueeze(0)
+            deltas = self.forward(x)
+
+            if layer_name in deltas:
+                return deltas[layer_name].squeeze(0).numpy()
+            return None
+
+
+class HyperLoRATrainer:
+    """
+    Training loop for HyperLoRA distillation from AdapterBank.
+
+    Teacher: AdapterBank + MoodRouter (what we already have working)
+    Student: HyperLoRA (what we're training)
+
+    Loss = MSE(student_delta, teacher_delta) + λ * ||student_delta||
+    """
+
+    def __init__(
+        self,
+        hyperlora: HyperLoRA,
+        bank: AdapterBank,
+        router: MoodRouter,
+        mixed_adapter: MixedAdapter,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+        norm_lambda: float = 0.01,
+    ):
+        self.hyperlora = hyperlora
+        self.bank = bank
+        self.router = router
+        self.mixed_adapter = mixed_adapter
+        self.norm_lambda = norm_lambda
+
+        self.optimizer = torch.optim.Adam(
+            hyperlora.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+        )
+
+        self.train_losses = []
+        self.step = 0
+
+    def generate_random_signals(self) -> "StanleySignals":
+        """Generate random StanleySignals for training."""
+        from .guided_attention import StanleySignals
+
+        return StanleySignals(
+            gravity_centers=["random"] * np.random.randint(0, 10),
+            pulse_arousal=np.random.random(),
+            pulse_entropy=np.random.random(),
+            pulse_novelty=np.random.random(),
+            surface_keywords=["word"] * np.random.randint(0, 5),
+            resonating_tags=["tag"] * np.random.randint(0, 5),
+            active_expert=np.random.choice(["structural", "semantic", "creative", "precise"]),
+            expert_temperature=np.random.random(),
+            overthink_depth=np.random.randint(0, 10),
+            spiral_topics=["topic"] * np.random.randint(0, 5),
+            body_tension=np.random.random(),
+            body_boredom=np.random.random(),
+            drift_momentum=np.random.random(),
+            hot_words=["hot"] * np.random.randint(0, 5),
+        )
+
+    def train_step(self, signals: "StanleySignals") -> float:
+        """Single training step."""
+        self.hyperlora.train()
+        self.optimizer.zero_grad()
+
+        # Get teacher outputs (from AdapterBank)
+        teacher_mix = self.router.compute_mix(signals)
+        self.mixed_adapter._cached_mix = teacher_mix
+        self.mixed_adapter._cached_deltas = {}
+
+        # Get student outputs
+        x = self.hyperlora.signals_to_tensor(signals).unsqueeze(0)
+        student_deltas = self.hyperlora.forward(x)
+
+        # Compute loss for each layer
+        total_loss = 0.0
+        num_layers = 0
+
+        for layer_name in self.hyperlora.layer_names:
+            # Teacher delta
+            teacher_delta = self.mixed_adapter.get_mixed_delta(layer_name)
+            if teacher_delta is None:
+                continue
+
+            teacher_tensor = torch.from_numpy(teacher_delta).float().unsqueeze(0)
+            student_tensor = student_deltas[layer_name]
+
+            # MSE loss
+            mse_loss = torch.nn.functional.mse_loss(student_tensor, teacher_tensor)
+
+            # Norm regularization
+            norm_loss = self.norm_lambda * student_tensor.norm()
+
+            total_loss += mse_loss + norm_loss
+            num_layers += 1
+
+        if num_layers > 0:
+            total_loss = total_loss / num_layers
+            total_loss.backward()
+            self.optimizer.step()
+
+        loss_val = total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss
+        self.train_losses.append(loss_val)
+        self.step += 1
+
+        return loss_val
+
+    def train(self, num_steps: int = 1000, log_every: int = 100) -> List[float]:
+        """Train for multiple steps with random signals."""
+        losses = []
+
+        for i in range(num_steps):
+            signals = self.generate_random_signals()
+            loss = self.train_step(signals)
+            losses.append(loss)
+
+            if (i + 1) % log_every == 0:
+                avg_loss = np.mean(losses[-log_every:])
+                logger.info(f"HyperLoRA training step {i+1}/{num_steps}, loss: {avg_loss:.6f}")
+
+        return losses
+
+    def evaluate(self, num_samples: int = 100) -> Dict[str, float]:
+        """Evaluate HyperLoRA vs AdapterBank."""
+        self.hyperlora.eval()
+
+        cosine_sims = []
+        mse_vals = []
+
+        with torch.no_grad():
+            for _ in range(num_samples):
+                signals = self.generate_random_signals()
+
+                # Teacher
+                teacher_mix = self.router.compute_mix(signals)
+                self.mixed_adapter._cached_mix = teacher_mix
+                self.mixed_adapter._cached_deltas = {}
+
+                # Student
+                x = self.hyperlora.signals_to_tensor(signals).unsqueeze(0)
+                student_deltas = self.hyperlora.forward(x)
+
+                for layer_name in self.hyperlora.layer_names[:1]:  # Sample one layer
+                    teacher_delta = self.mixed_adapter.get_mixed_delta(layer_name)
+                    if teacher_delta is None:
+                        continue
+
+                    teacher_flat = torch.from_numpy(teacher_delta).float().flatten()
+                    student_flat = student_deltas[layer_name].squeeze(0).flatten()
+
+                    # Cosine similarity
+                    cos_sim = torch.nn.functional.cosine_similarity(
+                        teacher_flat.unsqueeze(0),
+                        student_flat.unsqueeze(0)
+                    ).item()
+                    cosine_sims.append(cos_sim)
+
+                    # MSE
+                    mse = torch.nn.functional.mse_loss(student_flat, teacher_flat).item()
+                    mse_vals.append(mse)
+
+        return {
+            "cosine_similarity_mean": np.mean(cosine_sims),
+            "cosine_similarity_std": np.std(cosine_sims),
+            "mse_mean": np.mean(mse_vals),
+            "mse_std": np.std(mse_vals),
+        }
+
+
+def create_hyperlora_system(
+    model: nn.Module,
+    config: Optional[AdapterBankConfig] = None,
+) -> Tuple[HyperLoRA, HyperLoRATrainer, AdapterBank, MoodRouter, MixedAdapter]:
+    """
+    Create HyperLoRA system with trainer.
+
+    Returns:
+        (hyperlora, trainer, bank, router, mixed_adapter)
+    """
+    cfg = config or AdapterBankConfig()
+
+    # Create base adapter system
+    bank = AdapterBank(cfg)
+    bank.initialize_from_model(model)
+
+    router = MoodRouter(temperature=cfg.mix_temperature)
+    mixed_adapter = MixedAdapter(bank, router, alpha=cfg.lora_alpha)
+
+    # Create HyperLoRA
+    hyperlora = HyperLoRA(bank, hidden_dim=128, num_basis=8)
+
+    # Create trainer
+    trainer = HyperLoRATrainer(hyperlora, bank, router, mixed_adapter)
+
+    return hyperlora, trainer, bank, router, mixed_adapter

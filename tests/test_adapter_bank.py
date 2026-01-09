@@ -733,5 +733,199 @@ class TestGPT2Integration:
             f"Mood should change distribution, KL = {kl}"
 
 
+# ============================================================================
+# HYPERLORA TESTS (Act 4)
+# ============================================================================
+
+from stanley_hybrid.adapter_bank import HyperMixer, HyperLoRA, HyperLoRATrainer
+
+
+class TestHyperMixer:
+    """Tests for HyperMixer (predicts mix coefficients)."""
+
+    @pytest.fixture
+    def mixer(self):
+        return HyperMixer(hidden_dim=32)
+
+    def test_mixer_creation(self, mixer):
+        """Test HyperMixer creates correctly."""
+        assert mixer.input_dim == 14
+        assert mixer.num_moods == 8
+        assert len(list(mixer.parameters())) > 0
+
+    def test_signals_to_tensor(self, mixer, calm_signals):
+        """Test signal conversion to tensor."""
+        tensor = mixer.signals_to_tensor(calm_signals)
+        assert tensor.shape == (14,)
+        assert tensor.dtype == torch.float32
+
+    def test_forward_shape(self, mixer, calm_signals):
+        """Test forward pass output shape."""
+        x = mixer.signals_to_tensor(calm_signals).unsqueeze(0)
+        out = mixer.forward(x)
+        assert out.shape == (1, 8)
+
+    def test_predict_mix_sums_to_one(self, mixer, calm_signals):
+        """Predicted mix should sum to 1 (softmax)."""
+        mix = mixer.predict_mix(calm_signals)
+        total = sum(mix.values())
+        assert abs(total - 1.0) < 1e-5
+
+
+class TestHyperLoRA:
+    """Tests for HyperLoRA (generates ΔW from signals)."""
+
+    @pytest.fixture
+    def small_bank(self):
+        """Create small adapter bank for testing."""
+        layer_dims = {
+            'h.0.attn.c_attn': (64, 32),
+            'h.0.mlp.c_fc': (64, 32),
+        }
+        config = AdapterBankConfig(lora_rank=4)
+        bank = AdapterBank(config)
+        bank.initialize_adapters(layer_dims)
+        return bank
+
+    @pytest.fixture
+    def hyperlora(self, small_bank):
+        return HyperLoRA(small_bank, hidden_dim=32, num_basis=8)
+
+    def test_hyperlora_creation(self, hyperlora):
+        """Test HyperLoRA creates correctly."""
+        assert hyperlora.input_dim == 14
+        assert hyperlora.num_basis == 8
+        assert len(hyperlora.layer_names) == 2
+
+    def test_basis_deltas_initialized(self, hyperlora):
+        """Basis deltas should be initialized from bank."""
+        for layer_name in hyperlora.layer_names:
+            assert layer_name in hyperlora.basis_deltas
+            basis = hyperlora.basis_deltas[layer_name]
+            assert basis.shape[0] == 8  # num_basis
+
+    def test_forward_produces_deltas(self, hyperlora, calm_signals):
+        """Forward pass should produce delta for each layer."""
+        x = hyperlora.signals_to_tensor(calm_signals).unsqueeze(0)
+        deltas = hyperlora.forward(x)
+
+        assert len(deltas) == len(hyperlora.layer_names)
+        for layer_name, delta in deltas.items():
+            assert delta.shape[0] == 1  # batch size
+
+    def test_get_delta_returns_numpy(self, hyperlora, calm_signals):
+        """get_delta should return numpy array."""
+        layer_name = hyperlora.layer_names[0]
+        delta = hyperlora.get_delta(calm_signals, layer_name)
+
+        assert isinstance(delta, np.ndarray)
+        assert delta.ndim == 2
+
+    def test_delta_no_nan(self, hyperlora, calm_signals):
+        """Delta should not contain NaN."""
+        for layer_name in hyperlora.layer_names:
+            delta = hyperlora.get_delta(calm_signals, layer_name)
+            assert not np.isnan(delta).any()
+
+    def test_delta_bounded(self, hyperlora, intense_signals):
+        """Delta norm should be bounded."""
+        for layer_name in hyperlora.layer_names:
+            delta = hyperlora.get_delta(intense_signals, layer_name)
+            norm = np.linalg.norm(delta)
+            assert norm < 100.0  # Reasonable bound
+
+
+class TestHyperLoRATrainer:
+    """Tests for HyperLoRA training (distillation)."""
+
+    @pytest.fixture
+    def training_setup(self):
+        """Create training setup."""
+        layer_dims = {
+            'h.0.attn.c_attn': (64, 32),
+            'h.0.mlp.c_fc': (64, 32),
+        }
+        config = AdapterBankConfig(lora_rank=4)
+        bank = AdapterBank(config)
+        bank.initialize_adapters(layer_dims)
+
+        hyperlora = HyperLoRA(bank, hidden_dim=32, num_basis=8)
+        router = MoodRouter()
+        mixed = MixedAdapter(bank, router)
+        trainer = HyperLoRATrainer(hyperlora, bank, router, mixed)
+
+        return trainer, hyperlora, bank, router, mixed
+
+    def test_trainer_creation(self, training_setup):
+        """Test trainer creates correctly."""
+        trainer, hyperlora, bank, router, mixed = training_setup
+        assert trainer.hyperlora is hyperlora
+        assert trainer.step == 0
+
+    def test_generate_random_signals(self, training_setup):
+        """Test random signal generation."""
+        trainer, *_ = training_setup
+        signals = trainer.generate_random_signals()
+
+        assert 0 <= signals.pulse_arousal <= 1
+        assert 0 <= signals.pulse_entropy <= 1
+        assert signals.overthink_depth >= 0
+
+    def test_train_step_returns_loss(self, training_setup):
+        """Training step should return loss value."""
+        trainer, *_ = training_setup
+        signals = trainer.generate_random_signals()
+        loss = trainer.train_step(signals)
+
+        assert isinstance(loss, float)
+        assert loss >= 0
+        assert trainer.step == 1
+
+    def test_multiple_train_steps(self, training_setup):
+        """Multiple training steps should work."""
+        trainer, *_ = training_setup
+
+        losses = []
+        for _ in range(10):
+            signals = trainer.generate_random_signals()
+            loss = trainer.train_step(signals)
+            losses.append(loss)
+
+        assert trainer.step == 10
+        assert len(trainer.train_losses) == 10
+
+    def test_evaluate_returns_metrics(self, training_setup):
+        """Evaluate should return proper metrics."""
+        trainer, *_ = training_setup
+        metrics = trainer.evaluate(num_samples=10)
+
+        assert "cosine_similarity_mean" in metrics
+        assert "mse_mean" in metrics
+        assert 0 <= metrics["cosine_similarity_mean"] <= 1
+
+
+class TestHyperLoRADeterminism:
+    """Tests for HyperLoRA deterministic behavior."""
+
+    @pytest.fixture
+    def hyperlora_setup(self):
+        layer_dims = {'h.0.attn.c_attn': (64, 32)}
+        config = AdapterBankConfig(lora_rank=4)
+        bank = AdapterBank(config)
+        bank.initialize_adapters(layer_dims)
+        hyperlora = HyperLoRA(bank, hidden_dim=32, num_basis=8)
+        return hyperlora, bank
+
+    def test_same_signals_same_delta(self, hyperlora_setup, calm_signals):
+        """Same signals should produce identical deltas."""
+        hyperlora, bank = hyperlora_setup
+        layer_name = list(bank.layer_dims.keys())[0]
+
+        delta1 = hyperlora.get_delta(calm_signals, layer_name)
+        delta2 = hyperlora.get_delta(calm_signals, layer_name)
+
+        np.testing.assert_array_equal(delta1, delta2)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
