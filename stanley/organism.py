@@ -53,6 +53,12 @@ from .body_sense import BodySense, BodyState, RegulationResult
 from .semantic_drift import SemanticDrift
 from .shard import SomaticMemory
 
+# New emergence modules — self-training architecture
+from .cooccur import CooccurField, CooccurConfig
+from .lexicon import Lexicon
+from .episodes import EpisodicMemory, Episode, StanleyMetrics
+from .inner_voice import InnerVoice, InnerVoiceConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,6 +125,21 @@ class StanleyConfig:
 
     # Somatic memory (body memory of felt moments)
     use_somatic_memory: bool = True  # Enable "how did this feel?" memories
+
+    # CooccurField (emergence through co-occurrence)
+    use_cooccur_field: bool = True  # Enable word co-occurrence patterns
+    cooccur_window_size: int = 5  # Context window for co-occurrence
+
+    # Lexicon (vocabulary growth)
+    use_lexicon: bool = True  # Enable vocabulary absorption from conversation
+    lexicon_decay_rate: float = 0.99  # How fast old patterns fade
+
+    # Episodic memory (Self-RAG)
+    use_episodic_memory: bool = True  # Enable episodic recall
+    max_episodes: int = 500  # Maximum episodes to store
+
+    # Inner voice (self-evaluation)
+    use_inner_voice: bool = True  # Enable MetaStanley's second breath
 
     # Paths
     data_dir: Optional[str] = None
@@ -283,6 +304,38 @@ class Stanley:
         if self.config.use_somatic_memory:
             self.somatic_memory = SomaticMemory(max_shards=500)
             logger.info("Somatic memory ready: 'how did this feel?' enabled")
+
+        # CooccurField — emergence through co-occurrence
+        self.cooccur_field: Optional[CooccurField] = None
+        if self.config.use_cooccur_field:
+            cooccur_cfg = CooccurConfig(window_size=self.config.cooccur_window_size)
+            self.cooccur_field = CooccurField.from_text(self.origin_text, self.vocab, cooccur_cfg)
+            logger.info(f"CooccurField ready: {self.cooccur_field.stats()['unique_trigrams']} trigrams")
+
+        # Lexicon — vocabulary growth through conversation
+        self.lexicon: Optional[Lexicon] = None
+        if self.config.use_lexicon:
+            self.lexicon = Lexicon(
+                self.vocab,
+                cooccur_field=self.cooccur_field,
+                decay_rate=self.config.lexicon_decay_rate,
+            )
+            logger.info("Lexicon ready: vocabulary absorption enabled")
+
+        # Episodic memory — Self-RAG from own history
+        self.episodic_memory: Optional[EpisodicMemory] = None
+        if self.config.use_episodic_memory:
+            self.episodic_memory = EpisodicMemory(max_episodes=self.config.max_episodes)
+            logger.info("Episodic memory ready: Self-RAG enabled")
+
+        # Inner voice — Stanley's second breath
+        self.inner_voice: Optional[InnerVoice] = None
+        if self.config.use_inner_voice:
+            self.inner_voice = InnerVoice(
+                vocab=self.vocab,
+                cooccur_field=self.cooccur_field,
+            )
+            logger.info("Inner voice ready: second breath enabled")
 
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
                    f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
@@ -459,6 +512,14 @@ class Stanley:
         """
         stats = {}
 
+        # === LEXICON: Absorb vocabulary from user input ===
+        # Stanley learns YOUR words through conversation!
+        if self.lexicon:
+            absorption = self.lexicon.absorb(prompt, source="user")
+            if absorption.count > 0:
+                stats["lexicon_absorbed"] = absorption.count
+                logger.debug(f"Lexicon absorbed {absorption.count} patterns from user")
+
         # === SUBJECTIVITY: User input → Pulse (NOT seed!) ===
         pulse = None
         internal_seed = None
@@ -634,6 +695,45 @@ class Stanley:
             if isinstance(self.router, AdaptiveRouter):
                 self.router.mark_useful(shard.id)
 
+        # === COOCCUR FIELD: Learn from generated response ===
+        # Stanley's own output feeds back into emergence patterns
+        if self.cooccur_field and response:
+            new_patterns = self.cooccur_field.observe_text(response, self.vocab, weight=0.5)
+            if new_patterns > 0:
+                stats["cooccur_learned"] = new_patterns
+
+        # === INNER VOICE: Self-evaluation (optional dual generation) ===
+        # If enabled and we have a quality baseline, evaluate the response
+        if self.inner_voice and response and pulse:
+            # Feed inner voice with high-arousal outputs
+            self.inner_voice.feed(
+                reply=response,
+                arousal=pulse.arousal,
+            )
+            stats["inner_voice"] = self.inner_voice.stats()
+
+        # === EPISODIC MEMORY: Record this moment for Self-RAG ===
+        if self.episodic_memory and pulse:
+            episode = Episode(
+                seed=internal_seed or "I",
+                output=response,
+                metrics=StanleyMetrics(
+                    entropy=pulse.entropy,
+                    arousal=pulse.arousal,
+                    novelty=pulse.novelty,
+                    valence=pulse.valence,
+                    boredom=regulation.boredom if regulation else 0.0,
+                    overwhelm=regulation.overwhelm if regulation else 0.0,
+                    stuck=regulation.stuck if regulation else 0.0,
+                    temperature=temperature,
+                    method=stats.get("method", "subword_field"),
+                    quality=regulation.predicted_quality if regulation else 0.5,
+                    resonance=pulse.arousal,  # Use arousal as proxy for resonance
+                ),
+            )
+            self.episodic_memory.observe(episode)
+            stats["episodic_memory"] = self.episodic_memory.stats()
+
         # === CLEANUP: Apply Haze-style coherence magic ===
         # 1. Truncate at natural sentence boundary (no trailing "...")
         response = truncate_at_natural_end(response, max_length=len(response))
@@ -677,6 +777,14 @@ class Stanley:
             "maturity": self._get_age(),
             "subword_field": self.subword_field.stats() if self.subword_field else None,
             "subjectivity": self.subjectivity.stats() if self.subjectivity else None,
+            # New emergence modules — self-training stats
+            "cooccur_field": self.cooccur_field.stats() if self.cooccur_field else None,
+            "lexicon": self.lexicon.stats().__dict__ if self.lexicon else None,
+            "episodic_memory": self.episodic_memory.stats() if self.episodic_memory else None,
+            "inner_voice": self.inner_voice.stats() if self.inner_voice else None,
+            "body_sense": self.body_sense.get_stats() if self.body_sense else None,
+            "semantic_drift": self.semantic_drift.get_stats() if self.semantic_drift else None,
+            "somatic_memory": self.somatic_memory.get_stats() if self.somatic_memory else None,
         }
 
     def save(self, path: Optional[str] = None):
