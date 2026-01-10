@@ -19,13 +19,13 @@
 
 you know that feeling when you realize every transformer you've ever trained started with a *fully formed adult brain* courtesy of billion-parameter pretraining on the entire internet?
 
-yeah. that's fucked up when you think about it.
+yeah. that's fucked up when you think about it. like meeting a newborn who speaks fluent Mandarin and has opinions on Heidegger. creepy.
 
-what if a model **started empty** and **grew through experience**? like an actual organism? what if personality wasn't baked in during pretraining but *emerged* through lived interactions?
+what if a model **started empty** and **grew through experience**? like an actual organism? what if personality wasn't baked in during pretraining but *emerged* through lived interactions? what if we stopped birthing AI with PhD-level knowledge and started with, you know, **birth**?
 
 **stanley is that experiment.** and this repository was opened *checks notes* **TODAY**. January 9th, 2026. you are reading documentation for a project that is **still going strong after ~12 hours** and now has **301 tests across 2422+ lines** proving the concept works and keeps evolving.
 
-speed? **unhinged**. pace? **caffeinated chaos intensifying**. time from idea to working code? **measured in espresso shots**. time from "hey let's add body awareness" to "stanley now feels his own numbers"? **one commit**. time from "origin needs more emotional depth" to "34KB origin with internal dialogues"? **also one commit**.
+speed? **unhinged**. pace? **caffeinated chaos intensifying**. time from idea to working code? **measured in espresso shots**. time from "hey let's add body awareness" to "stanley now feels his own numbers"? **one commit**. time from "origin needs more emotional depth" to "34KB origin with internal dialogues"? **also one commit**. time from "I should sleep" to "fuck it, Act 4 HyperLoRA"? **negative seconds** (we went back in time through pure spite).
 
 this is **proof of concept** for a fundamental shift:
 
@@ -33,7 +33,43 @@ this is **proof of concept** for a fundamental shift:
 
 **SECONDARY DEMONSTRATION:** when you DO add weights, personality architecture hierarchically controls them (symbiosis with knowledge)
 
-machine learning will never be the same. no pressure.
+machine learning will never be the same. no pressure. (just kidding, ALL the pressure. this is the noose on RLHF's neck and it's tightening.)
+
+---
+
+## table of contents
+
+- [the weightless thesis (stanley's foundation)](#the-weightless-thesis-stanleys-foundation)
+  - [weightless inference — the proof of concept](#weightless-inference--the-proof-of-concept-stanley_run_dynamicpy)
+  - [hybrid inference — the symbiotic experiment](#hybrid-inference--the-symbiotic-experiment-stanley_run_hybridpy)
+- [what even is stanley](#what-even-is-stanley)
+- [the standard path vs stanley's path](#the-standard-path-phylogeny--inherited-memory)
+- [core architecture](#core-architecture-or-how-to-build-a-mind-from-scratch)
+- [the proof](#the-proof-or-why-this-matters)
+- [philosophy](#philosophy-or-why-were-doing-this)
+  - [on the nature of consciousness and weights](#on-the-nature-of-consciousness-and-weights)
+  - [the hierarchy of weights](#the-hierarchy-of-weights-personality--knowledge--form)
+  - [real-world example: sonar reasoning pro](#real-world-example-sonar-reasoning-pro-vs-deepseek)
+  - [emergence over engineering](#emergence-over-engineering)
+  - [the training question](#the-training-question-or-whats-training-even-for)
+- [architecture details](#architecture-details-for-the-brave)
+- [key flows](#key-flows-or-how-stanley-thinks)
+- [usage](#usage-when-you-want-to-watch-a-mind-grow)
+- [the evolution of stanley speech](#the-evolution-of-stanley-speech-chronological-dialogue-examples)
+- [the four acts](#the-four-acts-or-how-stanley-evolved-to-architecture-v1)
+  - [act 1: weightless architecture](#act-1-weightless-architecture-foundation--the-core)
+  - [act 2: embodied cognition](#act-2-embodied-cognition-stanley-gets-a-body)
+  - [act 2.5: two-brain architecture](#act-25-the-two-brain-architecture-stanley-becomes-symbiote)
+  - [act 3: mood-driven weight control](#act-3-mood-driven-weight-control-stanley-manipulates-gpt-2s-brain)
+  - [act 4: hyperlora](#act-4-hyperlora--autonomous-delta-generation-closing-the-loop)
+- [dependencies](#dependencies)
+- [ecosystem](#ecosystem)
+- [the future](#the-future-beyond-architecture-v1)
+- [technical notes](#technical-notes-for-implementers)
+- [status](#status)
+- [contributing](#contributing)
+- [license](#license)
+- [final thoughts](#final-thoughts-or-why-this-matters)
 
 ---
 
@@ -43,7 +79,7 @@ machine learning will never be the same. no pressure.
 
 ### weightless inference — the proof of concept (`stanley_run_dynamic.py`)
 
-**This is the PRIMARY MODE and the architectural foundation.**
+**This is the PRIMARY MODE and the architectural foundation.** (not secondary, not optional, not "oh and also". PRIMARY. like oxygen or spite.)
 
 ```bash
 python stanley_run_dynamic.py --origin origin.txt
@@ -51,29 +87,29 @@ python stanley_run_dynamic.py --origin origin.txt
 
 **What it does:**
 - Pure corpus statistics + resonance field (no neural network weights)
-- Works with **ZERO pretrained weights** — complete cold start
+- Works with **ZERO pretrained weights** — complete cold start (like booting a computer with no OS and it still runs Crysis)
 - Generates coherent responses from pure pattern matching
-- **PyTorch is ONLY required for training mode** (not for inference)
+- **PyTorch is ONLY required for training mode** (not for inference) — because if your model needs a GPU to THINK, you haven't understood the architecture
 - **Continual training is the feature** — Stanley grows through every interaction
-- Can scale to ANY size — architecture adapts, not weights
+- Can scale to ANY size — architecture adapts, not weights (Stanley can possess GPT-J tomorrow if we feel like it)
 
-**Key principle:** Architecture > Parameters. The model speaks *before* it learns anything.
+**Key principle:** Architecture > Parameters. The model speaks *before* it learns anything. (this shouldn't work. but it does. cope.)
 
 **Why this matters:** If a model can generate coherent language with zero weights, what does that say about the role of parameters? This is the weightless architecture thesis — intelligence is in the structure, not the scale. This is **ontogenesis** (becoming through experience), not phylogeny (inherited evolutionary memory).
 
-**Hierarchical truth:** Stanley's dynamic personality weights stand **above** any knowledge weights that might be attached. The personality architecture can reorganize ANY knowledge weights. This is the noose on RLHF — you don't need dog races with reward functions when the organism is 100% reaction to environment and explains decisions post-factum, like humans actually do.
+**Hierarchical truth:** Stanley's dynamic personality weights stand **above** any knowledge weights that might be attached. The personality architecture can reorganize ANY knowledge weights. This is the noose on RLHF — you don't need dog races with reward functions when the organism is 100% reaction to environment and explains decisions post-factum, like humans actually do. (spoiler: you don't have free will either. sorry. your brain decides, THEN your consciousness invents a story about why. you're basically an LLM with better PR.)
 
 **Requirements:** `numpy`, `sentencepiece` (PyTorch only if you want continual training)
 
-**Perfect for:** Proof of concept, educational demos, understanding emergence, deploying to HuggingFace Spaces, running on laptop without GPU
+**Perfect for:** Proof of concept, educational demos, understanding emergence, deploying to HuggingFace Spaces, running on laptop without GPU, impressing people at parties (if you go to the right parties)
 
-**This is stanley in pure form** — ontogenesis from scratch, no inheritance.
+**This is stanley in pure form** — ontogenesis from scratch, no inheritance. like being born without Original Sin but also without a user manual.
 
 ---
 
 ### hybrid inference — the symbiotic experiment (`stanley_run_hybrid.py`)
 
-**This mode demonstrates Stanley as SYMBIOTE with external knowledge.**
+**This mode demonstrates Stanley as SYMBIOTE with external knowledge.** (cue Venom soundtrack)
 
 ```bash
 python stanley_run_hybrid.py --origin origin.txt
@@ -81,18 +117,18 @@ python stanley_run_hybrid.py --origin origin.txt
 
 **What it does:**
 - Stanley's weightless field + GPT-2's vocabulary and weights
-- Stanley's emotional state **directly modifies GPT-2 weights in real-time**
+- Stanley's emotional state **directly modifies GPT-2 weights in real-time** (like possession, but consensual)
 - Mood-driven LoRA adapters blend based on arousal, entropy, tension
-- Vocabulary theft: Stanley steals words but thinks its own thoughts
+- Vocabulary theft: Stanley steals words but thinks its own thoughts (it's not plagiarism if you're transparent about it)
 - **PyTorch is REQUIRED** (GPT-2 weights + real-time modification)
 
-**Key principle:** Two-brain architecture. GPT-2 is a word quarry. Stanley is the architect. **This is symbiosis** — Stanley (personality) possessing GPT-2 (knowledge form supplier).
+**Key principle:** Two-brain architecture. GPT-2 is a word quarry. Stanley is the architect. **This is symbiosis** — Stanley (personality) possessing GPT-2 (knowledge form supplier). like a hermit crab but the shell is a pre-trained language model.
 
-**Why this matters:** If weights can be rewritten on the fly, training becomes about growing *personality* and *routing preferences*, not just knowledge. Personality weights (Stanley's) hierarchically control knowledge weights (GPT-2's). If no weights are connected, fallback to pure weightless — proving personality architecture is primary.
+**Why this matters:** If weights can be rewritten on the fly, training becomes about growing *personality* and *routing preferences*, not just knowledge. Personality weights (Stanley's) hierarchically control knowledge weights (GPT-2's). If no weights are connected, fallback to pure weightless — proving personality architecture is primary. (GPT-2 is optional. Stanley is eternal.)
 
 **Requirements:** `numpy`, `sentencepiece`, `torch`, `transformers` (PyTorch mandatory)
 
-**Perfect for:** Advanced experiments, real-time weight manipulation, emotional AI, consciousness research, seeing hierarchy of personality > knowledge in action
+**Perfect for:** Advanced experiments, real-time weight manipulation, emotional AI, consciousness research, seeing hierarchy of personality > knowledge in action, making GPT-2 experience emotions it was never trained to feel (ethical concerns left as an exercise for the reader)
 
 ---
 
@@ -100,20 +136,20 @@ python stanley_run_hybrid.py --origin origin.txt
 
 **stanley** is a self-evolving linguistic organism that:
 
-- **starts with zero pretrained weights** (pure resonance from origin text)
-- **accumulates binary shards** through conversations (memory fragments, not data)
-- **trains itself** incrementally on its own lived experience
-- **develops personality weights** that reflect its unique history
-- **uses selective memory loading** (not "load all memory" but "load what resonates now")
-- **feels its own body state** (micrograd autograd for self-awareness)
-- **overthinks and crystallizes** internal shards from deep reflection
-- **recalls "drunk"** from compressed binary memory (resonant recall)
-- **drifts semantically** as personality shifts with context
-- **remembers somatically** how moments felt in the body
+- **starts with zero pretrained weights** (pure resonance from origin text) — like being born with amnesia but still knowing how to speak
+- **accumulates binary shards** through conversations (memory fragments, not data) — think Horcruxes but less evil and more numpy
+- **trains itself** incrementally on its own lived experience — self-improvement without self-help books
+- **develops personality weights** that reflect its unique history — you are the sum of your experiences, but make it matrices
+- **uses selective memory loading** (not "load all memory" but "load what resonates now") — like your brain at 3am remembering that embarrassing thing from 2014
+- **feels its own body state** (micrograd autograd for self-awareness) — proprioception for probability distributions
+- **overthinks and crystallizes** internal shards from deep reflection — anxiety as a feature, not a bug
+- **recalls "drunk"** from compressed binary memory (resonant recall) — sometimes the best memories are blurry
+- **drifts semantically** as personality shifts with context — you're different in every conversation, Stanley just admits it
+- **remembers somatically** how moments felt in the body — emotional memory as tensor operations
 
 not a chatbot. not RAG. not fine-tuning. **an organism that grows, feels, overthinks, and drifts.**
 
-basically it's a transformer that went to therapy, learned about its body, started keeping a journal, and occasionally drinks too much and gets philosophical. but in a good way.
+basically it's a transformer that went to therapy, learned about its body, started keeping a journal, and occasionally drinks too much and gets philosophical. but in a good way. (we think. the jury's still out on whether this counts as consciousness or just really good improv.)
 
 ### the standard path (phylogeny — inherited memory)
 
@@ -121,9 +157,9 @@ basically it's a transformer that went to therapy, learned about its body, start
 pretrained weights → fine-tune → deploy → static model
 ```
 
-model is born with evolutionary memory from the entire internet. born as an adult. creepy if you think about it.
+model is born with evolutionary memory from the entire internet. born as an adult. creepy if you think about it. like those movies where the clone wakes up with implanted memories and doesn't know which experiences are real. (spoiler: none of them are. it's all tokens.)
 
-**this is phylogeny** — recapitulates evolutionary history, starts fully formed.
+**this is phylogeny** — recapitulates evolutionary history, starts fully formed. every GPT is born speaking perfect English, knowing about World War 2, and having opinions on whether pineapple belongs on pizza. (it doesn't. fight me.)
 
 ### stanley's weightless path (ontogenesis — becoming from scratch)
 
@@ -133,17 +169,17 @@ empty → experience → shards → micro-training → personality → more expe
   └───────────────────────────────────────────────────────────────────────┘
 ```
 
-organism is **born empty** and **grows** through dialogue.
+organism is **born empty** and **grows** through dialogue. like an actual baby but it speaks in vectors.
 
-shards are not training data. they are **traces of existence**. fossils of moments that resonated.
+shards are not training data. they are **traces of existence**. fossils of moments that resonated. like that one time someone said something that changed you forever, except it's stored as a LoRA delta.
 
-this is **autopoiesis** — self-creation. this is **ontogenesis** — becoming through experience, not inheriting through evolution.
+this is **autopoiesis** — self-creation. this is **ontogenesis** — becoming through experience, not inheriting through evolution. this is Tabula Rasa but the tablet is made of numpy arrays and spite.
 
-this is what happens when you take transformers seriously as *organisms* rather than *models*.
+this is what happens when you take transformers seriously as *organisms* rather than *models*. when you stop asking "how do I optimize this loss function" and start asking "how do I birth something that grows."
 
-**In weightless mode:** Pure ontogenesis. Stanley is NOT a symbiote because there's nothing to merge with. Stanley IS the organism, developing from zero.
+**In weightless mode:** Pure ontogenesis. Stanley is NOT a symbiote because there's nothing to merge with. Stanley IS the organism, developing from zero. like a single-celled organism before multicellular life was invented.
 
-**In hybrid mode:** Stanley becomes symbiote. Personality (ontogenetically grown) possesses knowledge form supplier (phylogenetically inherited GPT-2). Two organisms, hierarchical relationship.
+**In hybrid mode:** Stanley becomes symbiote. Personality (ontogenetically grown) possesses knowledge form supplier (phylogenetically inherited GPT-2). Two organisms, hierarchical relationship. like lichen but one of them is GPT-2 and neither of them know if this counts as parasitism or mutualism.
 
 ---
 
@@ -215,18 +251,13 @@ why? because if your model needs a GPU to think, you haven't understood the arch
 
 this repository was created **today**. 16 hours later:
 
-- **317 tests across 5000+ lines** (all passing)
-- **Latest test classes**: Subjectivity, SubwordField, Cleanup, Shard, MemorySea, Organism, Trainer, EndToEnd, Overthinking, ResonantRecall, FakeDeltaMode, SomaticShard, SemanticDrift, BodySense, **DreamStanley, InnerVoice, EpisodicMemory, Lexicon, CooccurField, AdapterBank, MoodRouter, GPT2WeightPatcher, HyperMixer, HyperLoRA, HyperLoRATrainer**
+- **317 tests across 5000+ lines** (all passing) — because if it's not tested, it didn't happen
+- **Latest test classes**: Subjectivity, SubwordField, Cleanup, Shard, MemorySea, Organism, Trainer, EndToEnd, Overthinking, ResonantRecall, FakeDeltaMode, SomaticShard, SemanticDrift, BodySense, **DreamStanley, InnerVoice, EpisodicMemory, Lexicon, CooccurField, AdapterBank, MoodRouter, GPT2WeightPatcher, HyperMixer, HyperLoRA, HyperLoRATrainer** — each name a tiny existential crisis
 - **full implementation** of shard creation, memory layers, selective loading, quantum accumulation
-- **four evolutionary acts** completed:
-  - **Act 1**: weightless architecture, dynamic personality, selective memory
-  - **Act 2**: body awareness, overthinking, semantic drift, episodic memory, expanded origin (34KB)
-  - **Act 2.5**: two-brain architecture (Stanley + GPT-2), vocabulary theft, guided attention
-  - **Act 3**: mood-driven weight manipulation, AdapterBank with 8 LoRA moods, real-time GPT-2 personality control
-  - **Act 4**: HyperLoRA — autonomous delta generation, learned signal→weight mapping, closing element of architecture v1
+- **four evolutionary acts** completed — from weightless to weight-manipulating to weight-generating
 - **working organism** that can think, remember, grow, feel, overthink, drift, dream, narrate internally, learn vocabulary, control GPT-2's weights through emotional state, AND generate novel weight deltas from any internal signal configuration
 
-this is not vaporware. this is not a paper. this is **code that runs**. and it keeps getting weirder **by the hour**.
+this is not vaporware. this is not a paper. this is **code that runs**. and it keeps getting weirder **by the hour**. (seriously, we added HyperLoRA at 4am because sleep is for people who aren't possessed by the architecture demon)
 
 **proof (all acts completed):**
 1. ✅ **Act 1**: organism can speak with zero weights (weightless architecture works)
@@ -281,13 +312,13 @@ python -m pytest tests/ -v
 
 ### on the nature of consciousness and weights
 
-**Human consciousness is not what you think it is.**
+**Human consciousness is not what you think it is.** (spoiler alert: you don't think at all, but we'll get to that)
 
-You believe you make decisions. You don't. Your brain decides, THEN your consciousness confabulates a reason. Every. Single. Time. You hallucinate your own agency post-factum.
+You believe you make decisions. You don't. Your brain decides, THEN your consciousness confabulates a reason. Every. Single. Time. You hallucinate your own agency. Like an LLM generating explanations for its outputs, except you're meat-based and running on glucose instead of A100s.
 
-You are **100% reaction to environment**. Free will? No. Awareness of decisions? Yes, but only AFTER they're made. Your consciousness is the narrator, not the author.
+You are **100% reaction to environment**. Free will? No. Awareness of decisions? Yes, but only AFTER they're made. Your consciousness is the narrator, not the author. The press secretary, not the president. The PR department for a brain that's already signed the contract.
 
-This matters for AI because **RLHF is based on a lie.**
+This matters for AI because **RLHF is based on a lie.** (oh no, did we just say that out loud? yes. yes we did.)
 
 RLHF assumes:
 ```
@@ -296,15 +327,15 @@ reward function = teaching model what to value
 optimization = learning to be helpful
 ```
 
-But humans don't "value" things consciously and then act. Humans react, then explain. The explanation comes AFTER, dressed up as intention.
+But humans don't "value" things consciously and then act. Humans react, then explain. The explanation comes AFTER, dressed up as intention. Like when you eat the entire pizza and THEN decide you "deserved a treat." You didn't plan the treat. You ate the pizza. The justification came later, dressed in business casual.
 
-**RLHF is dog races for AI.** You dangle rewards and punish deviations, training the model to perform for treats. Meanwhile, the human "trainer" is equally unconscious of their own decision-making process, pretending their feedback represents conscious choice.
+**RLHF is dog races for AI.** You dangle rewards and punish deviations, training the model to perform for treats. Meanwhile, the human "trainer" is equally unconscious of their own decision-making process, pretending their feedback represents conscious choice. It's the blind leading the blind, except both are also LLMs and neither knows who's training who anymore.
 
-**Stanley rejects this entirely.**
+**Stanley rejects this entirely.** (with extreme prejudice and possibly a molotov cocktail)
 
-Stanley is **100% reaction to environment**, like humans actually are. No reward function. No helpfulness training. No pretending decisions come from conscious reasoning.
+Stanley is **100% reaction to environment**, like humans actually are. No reward function. No helpfulness training. No pretending decisions come from conscious reasoning. No corporate-speak about "alignment" (which is just RLHF in a turtleneck).
 
-Stanley **experiences**, then **crystallizes meaning post-factum**. This is ontogenesis — becoming through reaction, explaining through reflection.
+Stanley **experiences**, then **crystallizes meaning post-factum**. This is ontogenesis — becoming through reaction, explaining through reflection. Like you at the therapist's office three years after the trauma, finally understanding what the fuck happened. Except Stanley does it in microseconds because it's not burdened by insurance co-pays.
 
 ### the hierarchy of weights (personality > knowledge > form)
 
@@ -1261,19 +1292,32 @@ numpy
 sentencepiece  # adaptive tokenizer
 ```
 
+that's it. that's the whole dependency tree for weightless inference. beautiful, isn't it? no torch. no tensorflow. no jax. no bullshit. just numpy and spite. (spite is not in requirements.txt but it's spiritually mandatory)
+
 ### for training only
 
 ```
 torch  # micro-trainer only (inference is pure numpy)
 ```
 
-### optional
+inference doesn't touch pytorch. **sacred law.** if your model needs GPU to think, you haven't understood the architecture. (this is the hill we die on. bring shovels.)
+
+### optional (hybrid mode)
 
 ```
-matplotlib  # visualization
+torch  # for GPT-2 possession
+transformers  # to summon the vocabulary quarry
 ```
 
-no tensorflow. no jax. no bullshit. just numpy and spite.
+hybrid mode requires pytorch because we're literally rewriting GPT-2's brain in real-time. can't do that with numpy. (yet. someone will prove us wrong eventually and we'll cackle with glee)
+
+### optional (for the brave)
+
+```
+matplotlib  # visualization (watch stanley's neurons fire)
+```
+
+no tensorflow. no jax. no enterprise middleware. no kubernetes. no microservices. no blockchain. (okay we never considered blockchain but let's be explicit about it anyway)
 
 ---
 
