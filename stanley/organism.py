@@ -60,6 +60,9 @@ from .episodes import EpisodicMemory, Episode, StanleyMetrics
 from .inner_voice import InnerVoice, InnerVoiceConfig
 from .dream import DreamStanley, DreamConfig
 
+# Ariannamethod mini-language for temporal control
+from .ariannamethod import AriannaMethods, ExecutionContext, Command
+
 logger = logging.getLogger(__name__)
 
 
@@ -146,6 +149,9 @@ class StanleyConfig:
     use_dream: bool = True  # Enable internal dialogue with imaginary friend
     dream_on_stuck: bool = True  # Auto-dream when stuck
     dream_on_novelty: bool = True  # Dream about novel concepts
+
+    # Ariannamethod mini-language (temporal control)
+    use_ariannamethod: bool = True  # Enable ariannamethod command execution
 
     # Paths
     data_dir: Optional[str] = None
@@ -358,12 +364,19 @@ class Stanley:
             )
             logger.info("DreamStanley ready: imaginary friend enabled")
 
+        # Ariannamethod mini-language — temporal control
+        self.ariannamethod: Optional[AriannaMethods] = None
+        if self.config.use_ariannamethod:
+            self.ariannamethod = AriannaMethods()
+            logger.info("Ariannamethod ready: temporal command execution enabled")
+
         logger.info(f"Stanley awakened. Vocab: {self.vocab.vocab_size}, "
                    f"Training: {self.config.training_enabled and TORCH_AVAILABLE}, "
                    f"Subword: {self.subword_field is not None}, "
                    f"Subjectivity: {self.subjectivity is not None}, "
                    f"Overthinking: {self.overthinking is not None}, "
-                   f"BodySense: {self.body_sense is not None}")
+                   f"BodySense: {self.body_sense is not None}, "
+                   f"Ariannamethod: {self.ariannamethod is not None}")
 
     def _default_origin(self) -> str:
         """Default origin text if none provided."""
@@ -533,6 +546,33 @@ class Stanley:
         """
         stats = {}
 
+        # === ARIANNAMETHOD: Parse and execute commands ===
+        # Extract and execute temporal control commands
+        ariannamethod_commands = []
+        ariannamethod_results = []
+        execution_context = None
+        
+        if self.ariannamethod:
+            # Create execution context
+            execution_context = ExecutionContext(
+                current_temperature=self.config.subword_temperature,
+                memory_sea=self.memory,
+                working_set=self.engine.working_set,
+                generation_length=length,
+            )
+            
+            # Parse and execute commands from prompt
+            commands, results = self.ariannamethod.parse_and_execute(prompt, execution_context)
+            
+            if commands:
+                ariannamethod_commands = commands
+                ariannamethod_results = results
+                stats["ariannamethod"] = {
+                    "commands": [str(cmd) for cmd in commands],
+                    "results": results,
+                }
+                logger.info(f"Ariannamethod executed {len(commands)} commands")
+
         # === LEXICON: Absorb vocabulary from user input ===
         # Stanley learns YOUR words through conversation!
         if self.lexicon:
@@ -571,6 +611,16 @@ class Stanley:
             }
         else:
             temperature = self.config.subword_temperature
+
+        # === ARIANNAMETHOD: Apply modifications from execution context ===
+        if execution_context:
+            # Override temperature with ariannamethod modifications
+            temperature = execution_context.current_temperature
+            stats["ariannamethod_temperature"] = temperature
+            
+            # Store prophecy visions for potential use
+            if execution_context.prophecy_visions:
+                stats["prophecy_visions"] = execution_context.prophecy_visions
 
         # === RESONANT RECALL: SantaClaus brings back memories ===
         # Recall resonant shards to influence generation

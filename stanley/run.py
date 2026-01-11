@@ -64,8 +64,17 @@ Commands:
     /save       Save organism state
     /grow       Trigger growth/consolidation cycle
     /origin     Show origin text
+    /ariannamethod  Show ariannamethod commands
     /help       Show this help
     /quit       Exit REPL
+
+Ariannamethod commands (use in conversation):
+    jump(delta=0.5, future_state='creative')
+    predict(next_delta=0.8)
+    time_travel(offset=-10)
+    resonate(shard_id='abc123', boost=2.0)
+    prophecy(vision='emergence', strength=0.7)
+    drift(direction='curious', momentum=0.6)
 
 Just type text to talk to Stanley.
 Stanley will respond and maybe remember the interaction.
@@ -188,6 +197,26 @@ def run_repl(stanley: Stanley):
                 print("Origin text:")
                 print(stanley.origin_text)
 
+            elif cmd == "/ariannamethod":
+                if stanley.ariannamethod:
+                    print("\nAriannamethod Commands:")
+                    print("=" * 60)
+                    commands = stanley.ariannamethod.available_commands()
+                    for cmd_syntax, description in commands.items():
+                        print(f"\n  {cmd_syntax}")
+                        print(f"    → {description}")
+                    print("\n" + "=" * 60)
+                    
+                    # Show stats if any commands were used
+                    am_stats = stanley.ariannamethod.stats()
+                    if am_stats["total_commands"] > 0:
+                        print(f"\nUsage Statistics:")
+                        print(f"  Total commands: {am_stats['total_commands']}")
+                        print(f"  Command counts: {am_stats['command_counts']}")
+                        print(f"  Last command: {am_stats['last_command']}")
+                else:
+                    print("Ariannamethod not enabled.")
+
             else:
                 print(f"Unknown command: {cmd}")
                 print("Type /help for available commands")
@@ -220,6 +249,16 @@ def run_repl(stanley: Stanley):
               f"method={method}, time={think_time:.2f}s)")
         if body:
             print(f"    (boredom={boredom:.2f}, overwhelm={overwhelm:.2f})")
+        
+        # Show ariannamethod info if commands were executed
+        if 'ariannamethod' in stats:
+            am_info = stats['ariannamethod']
+            print(f"    [ariannamethod: {len(am_info['commands'])} commands executed]")
+            for cmd, result in zip(am_info['commands'], am_info['results']):
+                if result.get('success'):
+                    print(f"      ✓ {cmd}")
+                else:
+                    print(f"      ✗ {cmd} - {result.get('error', 'unknown error')}")
 
         # Process experience (maybe remember)
         full_interaction = f"user: {user_input}\nstanley: {response}"
