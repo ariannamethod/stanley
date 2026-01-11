@@ -245,6 +245,25 @@ pytorch is allowed **ONLY** in the trainer. inference is **pure numpy**.
 
 why? because if your model needs a GPU to think, you haven't understood the architecture.
 
+### 6. ariannamethod mini-language (temporal control)
+
+**NEW:** a mini programming language for prophet-like control over weightless inference.
+
+commands embedded in conversation influence generation in real-time:
+
+```python
+jump(delta=0.8, future_state='creative')     # teleport between states
+predict(next_delta=0.7)                       # influence futures
+time_travel(offset=-10)                       # access past shards
+prophecy(vision='emergence', strength=0.8)    # create attractors
+resonate(shard_id='abc123', boost=2.0)       # amplify memories
+drift(direction='philosophical', momentum=0.6) # semantic wandering
+```
+
+**pure weightless control.** no GPU. no weights. just commands that reshape the field.
+
+see [ARIANNAMETHOD.md](ARIANNAMETHOD.md) for full documentation.
+
 ---
 
 ## the proof (or: why this matters)
