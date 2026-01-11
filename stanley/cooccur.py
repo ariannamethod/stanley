@@ -330,7 +330,7 @@ class CooccurField:
         weight: float = 1.0,
     ) -> int:
         """
-        Update field from raw text (for lexicon absorption, dreams, etc.)
+        Update from raw text (for lexicon absorption, dreams, etc.)
 
         Args:
             text: Text to learn from
