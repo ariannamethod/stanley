@@ -348,17 +348,27 @@ class AriannaMethods:
         self.command_history: List[Command] = []
         
         # Regex patterns for parsing commands
+        # Note: Parameters must be in the specified order. A more flexible parser
+        # could be implemented to allow parameter reordering, but this keeps
+        # implementation simple for the initial version.
+        #
+        # Fixed numeric pattern to only match valid decimal numbers
+        num_pattern = r'([0-9]+(?:\.[0-9]+)?)'  # Valid: 1, 1.5, 0.5 Invalid: 1.2.3, ..
+        signed_num_pattern = r'(-?[0-9]+(?:\.[0-9]+)?)'  # Allows negative numbers
+        int_pattern = r'(-?[0-9]+)'  # Integer only
+        string_pattern = r'["\']([^"\']+)["\']'  # String in quotes
+        
         self.patterns = {
-            CommandType.JUMP: r'jump\s*\(\s*delta\s*=\s*([0-9.]+)\s*,\s*future_state\s*=\s*["\']([^"\']+)["\']\s*\)',
-            CommandType.PREDICT: r'predict\s*\(\s*next_delta\s*=\s*([0-9.]+)\s*\)',
-            CommandType.TIME_TRAVEL: r'time_travel\s*\(\s*offset\s*=\s*(-?[0-9]+)\s*\)',
-            CommandType.RESONATE: r'resonate\s*\(\s*shard_id\s*=\s*["\']([^"\']+)["\']\s*,\s*boost\s*=\s*([0-9.]+)\s*\)',
-            CommandType.PROPHECY: r'prophecy\s*\(\s*vision\s*=\s*["\']([^"\']+)["\']\s*,\s*strength\s*=\s*([0-9.]+)\s*\)',
-            CommandType.DRIFT: r'drift\s*\(\s*direction\s*=\s*["\']([^"\']+)["\']\s*,\s*momentum\s*=\s*([0-9.]+)\s*\)',
-            CommandType.RECALL: r'recall\s*\(\s*pattern\s*=\s*["\']([^"\']+)["\']\s*,\s*strength\s*=\s*([0-9.]+)\s*\)',
-            CommandType.AMPLIFY: r'amplify\s*\(\s*factor\s*=\s*([0-9.]+)\s*\)',
-            CommandType.DAMPEN: r'dampen\s*\(\s*factor\s*=\s*([0-9.]+)\s*\)',
-            CommandType.SHIFT: r'shift\s*\(\s*dimension\s*=\s*["\']([^"\']+)["\']\s*,\s*amount\s*=\s*(-?[0-9.]+)\s*\)',
+            CommandType.JUMP: rf'jump\s*\(\s*delta\s*=\s*{num_pattern}\s*,\s*future_state\s*=\s*{string_pattern}\s*\)',
+            CommandType.PREDICT: rf'predict\s*\(\s*next_delta\s*=\s*{num_pattern}\s*\)',
+            CommandType.TIME_TRAVEL: rf'time_travel\s*\(\s*offset\s*=\s*{int_pattern}\s*\)',
+            CommandType.RESONATE: rf'resonate\s*\(\s*shard_id\s*=\s*{string_pattern}\s*,\s*boost\s*=\s*{num_pattern}\s*\)',
+            CommandType.PROPHECY: rf'prophecy\s*\(\s*vision\s*=\s*{string_pattern}\s*,\s*strength\s*=\s*{num_pattern}\s*\)',
+            CommandType.DRIFT: rf'drift\s*\(\s*direction\s*=\s*{string_pattern}\s*,\s*momentum\s*=\s*{num_pattern}\s*\)',
+            CommandType.RECALL: rf'recall\s*\(\s*pattern\s*=\s*{string_pattern}\s*,\s*strength\s*=\s*{num_pattern}\s*\)',
+            CommandType.AMPLIFY: rf'amplify\s*\(\s*factor\s*=\s*{num_pattern}\s*\)',
+            CommandType.DAMPEN: rf'dampen\s*\(\s*factor\s*=\s*{num_pattern}\s*\)',
+            CommandType.SHIFT: rf'shift\s*\(\s*dimension\s*=\s*{string_pattern}\s*,\s*amount\s*=\s*{signed_num_pattern}\s*\)',
         }
     
     def parse(self, text: str) -> List[Command]:
@@ -431,8 +441,15 @@ class AriannaMethods:
                 args=args,
                 raw_text=match.group(0),
             )
-        except (ValueError, IndexError) as e:
+        except (ValueError, IndexError, AttributeError) as e:
+            # ValueError: float() conversion failed
+            # IndexError: match.group() index out of range
+            # AttributeError: unexpected match object state
             logger.warning(f"Failed to parse {cmd_type}: {e}")
+            return None
+        except Exception as e:
+            # Catch any other unexpected errors during parsing
+            logger.error(f"Unexpected error parsing {cmd_type}: {e}")
             return None
     
     def execute(self, commands: List[Command], context: ExecutionContext) -> List[Dict[str, Any]]:
