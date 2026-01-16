@@ -1,0 +1,16 @@
+# STANLEY HuggingFace Space Requirements
+# Minimal dependencies for demo deployment
+
+# Core (weightless mode)
+numpy>=1.21.0
+sentencepiece>=0.1.96
+
+# Gradio for UI
+gradio>=4.0.0
+
+# Hybrid mode (optional, enables GPT-2)
+torch>=2.0.0
+transformers>=4.30.0
+
+# For production deployment
+# psutil  # Optional: monitor memory usage
