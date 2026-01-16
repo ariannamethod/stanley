@@ -310,7 +310,7 @@ If you take organisms seriously — if you model memory, body, emotion, introspe
 
 ### The Uncomfortable Truth
 
-You don't have free will. Sorry.
+Neuroscience suggests free will may be an illusion.
 
 Neuroscience shows:
 1. Your brain decides **before** your consciousness knows

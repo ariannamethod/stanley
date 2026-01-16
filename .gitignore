@@ -208,3 +208,12 @@ __marimo__/
 
 # Stanley runtime data
 stanley_data/
+stanley_data_weightless/
+stanley_data_hybrid/
+
+# Test outputs
+test_output.log
+*.log
+
+# Gradio flagged data
+flagged/

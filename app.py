@@ -282,8 +282,10 @@ if __name__ == "__main__":
         print(f"   Hybrid mode: {'✅' if stanley_hybrid and external_brain else '❌'}")
         
         demo = create_demo()
+        # Note: server_name="0.0.0.0" is required for HuggingFace Spaces
+        # For local development, use server_name="127.0.0.1" instead
         demo.launch(
-            server_name="0.0.0.0",
+            server_name="0.0.0.0",  # Required for HF Spaces deployment
             server_port=7860,
             show_error=True,
         )
