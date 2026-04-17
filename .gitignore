@@ -217,3 +217,8 @@ test_output.log
 
 # Gradio flagged data
 flagged/
+
+# stanley 2.0 build artifacts
+*.o
+/stanley
+/tests/test_stanley
