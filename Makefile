@@ -9,8 +9,8 @@ LDFLAGS  ?= -lm -lpthread
 # keep it for Linux compatibility.
 UNAME_S := $(shell uname -s)
 
-SRC      := stanley.c main.c
-HDR      := stanley.h
+SRC      := stanley.c graze.c main.c
+HDR      := stanley.h graze.h
 OBJ      := $(SRC:.c=.o)
 BIN      := stanley
 

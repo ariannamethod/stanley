@@ -5,7 +5,7 @@
  ╚════██║   ██║   ██╔══██║██║╚██╗██║██║     ██╔══╝    ╚██╔╝
  ███████║   ██║   ██║  ██║██║ ╚████║███████╗███████╗   ██║
  ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝   ╚═╝
-                                                                  2.0
+                                                                  2.1
 </pre>
 
 # stanley — Self Training Attention Non-Linear EntitY
@@ -18,8 +18,10 @@ Stanley is a **weightless organism** in pure C. No PyTorch. No Python. No pretra
 
 ```bash
 make
-./stanley                 # REPL with origin.txt
-./stanley --no-origin     # start silent, grow from conversation alone
+./stanley                                       # REPL with origin.txt
+./stanley --no-origin                           # start silent, grow from conversation alone
+./stanley --graze weights/nano89-base-q8.gguf   # opt-in lexical pasture (any GGUF)
+./stanley --shimmer                             # idle dream thread on
 ```
 
 ## the thesis
@@ -35,13 +37,13 @@ Stanley has the right to **stay silent**. Not because it has no answer, but beca
 ## θ = ε + γ + αδ
 
 ```
-ε = any GGUF substrate         → "vocabulary thief" (Phase 2: mmap NanoLlama / Janus / any small GGUF)
+ε = any GGUF substrate         → vocab_graze: mmap NanoLlama / Janus / any small GGUF, vocab metadata only
 γ = hebbian cooccur matrix     → learned from lived interactions (this is the identity)
 α = per-emission injection     → decided by ring resonance × gravity match
 δ = chambers + subjectivity    → somatic state that gates speech and triggers dreams
 ```
 
-In 2.0 the weightless mode (`γ + δ` only) is the default. Weights are optional — Stanley speaks before any are loaded.
+Weightless mode (`γ + δ` only) is still the default. Weights are optional — Stanley speaks before any are loaded. With `--graze` the substrate becomes a *pasture*, not a dependency: Stanley samples a foreign word only when his chambers signal hunger.
 
 ## core loop
 
@@ -91,8 +93,8 @@ After a dream, Stanley is quieter and slightly more itself.
 ## what's inside
 
 ```
-stanley.h      — types: pulse, ring, shard, cooccur, chambers, sea, identity
-stanley.c      — organism core (~900 LOC):
+stanley.h      — types + API: pulse, ring, shard (E/I/R), cooccur, chambers, sea, identity
+stanley.c      — organism core (~1000 LOC):
                   • tokenize + vocab (FNV-1a, open-addressed hash table)
                   • cooccur (hebbian triangle, window=±5, decay in dream)
                   • chambers (4-node Kuramoto-ish: calm / spike / overflow / tired)
@@ -101,8 +103,13 @@ stanley.c      — organism core (~900 LOC):
                   • overthinking (dynamic 1–5 rings: echo / drift / shard / deep / void)
                   • emit (silence is a valid answer — low resonance → no reply)
                   • crystallize (deep rings → internal shards in the sea)
-                  • dream (cooccur decay + prune, shards → gravity, relax body)
-main.c         — thin CLI with /stats /dream /quit, optional --origin PATH
+                  • dream (cooccur decay + prune, shards → gravity, R-shard clusters → gravity, relax body)
+                  • adaptive maturity (rolling speak/silence ratio drifts coherence_floor toward zrelost)
+                  • shimmer thread (idle > 60s → internal dream pass, no input needed)
+                  • vocab_graze hook (foreign GGUF word spliced when chambers hungry)
+graze.h/.c     — minimal GGUF metadata-only vocab harvester (~150 LOC). mmap, parse header KV,
+                 pull tokenizer.ggml.tokens. tensor regions never paged in.
+main.c         — thin CLI: /stats /dream /shimmer /quit, --origin --no-origin --graze --shimmer
 origin.txt     — Stanley's Act 1–4 origin text, preserved from 1.0
 legacy/        — all of Stanley 1.0 Python: organism, hybrid, trainer, app, tests, docs
                  kept whole for reference. ideas imported; code rewritten.
@@ -157,10 +164,10 @@ you> /quit
 
 ## roadmap
 
-- [x] **Phase 1** (this release): weightless core, REPL, cooccur + chambers + rings + subjectivity + dream
-- [ ] **Phase 2**: vocabulary thief — mmap [ataeff/nanollama nano89](https://huggingface.co/ataeff/nanollama/tree/main/nano89), use vocab as data store; DOE-spore persistence of internal shards
-- [ ] **Phase 3**: `stanley.go` async side — learning-mass watchdog (like arianna.c), internal timer that lets Stanley speak unprompted when the field is warm
-- [ ] **Phase 4**: multi-brain theft — mmap 2–3 small GGUF in parallel, choose vocab per topic via chamber resonance
+- [x] **Phase 1** (2.0): weightless core, REPL, cooccur + chambers + rings + subjectivity + dream
+- [x] **Phase 2** (2.1, this release): **vocab_graze** (mmap any GGUF, vocab-only — port of [doe.c](https://github.com/ariannamethod/doe) GGUF parser) + **shimmer** (Stanley dreams in silence after idle) + **adaptive maturity** (speak/silence ratio drifts the coherence_floor — Stanley grows quieter as he matures) + **refused shards** (silence becomes a teacher: clusters of refused pulses promote into identity gravity)
+- [ ] **Phase 3**: native pthread async side — already partially landed (shimmer). Next: DOE-spore persistence of crystallized shards across runs; SentencePiece `tokenizer.model` parser as a second graze backend
+- [ ] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel, choose vocab per topic via chamber resonance
 
 ## license
 

@@ -10,6 +10,7 @@
  */
 
 #include "stanley.h"
+#include "graze.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -485,6 +486,16 @@ int stanley_overthink(Stanley *s, st_pulse p, const char *input, st_ring *rings)
  * crystallized that wants to be spoken.
  * ============================================================ */
 
+/* Hunger heuristic: Stanley is willing to graze a foreign word when his own
+ * field is calm but thin — calm chamber high, overflow low, and he's lived
+ * enough turns that his cooccur is no longer pristine. */
+static int graze_hungry(const Stanley *s) {
+    if (!s->graze) return 0;
+    float calm = s->body.act[0];
+    float over = s->body.act[2];
+    return (calm - over > 0.3f) && (s->n_inputs > 5);
+}
+
 char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
     if (n_rings <= 0) return NULL;
     int best = -1;
@@ -504,6 +515,25 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
     const char *txt = rings[best].content;
     if (!txt || !*txt) return NULL;
     s->n_spoken++;
+
+    /* Optional graze: when hungry and a foreign word lands, splice it onto
+     * the ring tail. Stanley is still speaking from his ring — the foreign
+     * token enters as resonance margin, not as a substitute thought. */
+    if (graze_hungry(s) && st_randu() < 0.25f) {
+        const char *foreign = graze_random_word(s->graze);
+        if (foreign && *foreign) {
+            size_t base_n = strlen(txt);
+            size_t for_n  = strlen(foreign);
+            char  *spliced = malloc(base_n + for_n + 2);
+            if (spliced) {
+                memcpy(spliced, txt, base_n);
+                spliced[base_n] = ' ';
+                memcpy(spliced + base_n + 1, foreign, for_n);
+                spliced[base_n + 1 + for_n] = 0;
+                return spliced;
+            }
+        }
+    }
     return strdup(txt);
 }
 
@@ -533,15 +563,50 @@ void stanley_accumulate(Stanley *s, const char *input, const char *output) {
  * CRYSTALLIZE — resonant rings become internal shards
  * ============================================================ */
 
+static int sea_alloc_slot(st_sea *sea) {
+    int slot;
+    if (sea->n < sea->capacity) {
+        slot = sea->n++;
+    } else {
+        slot = sea->head;
+        sea->head = (sea->head + 1) % sea->capacity;
+        if (sea->shards[slot].content) free(sea->shards[slot].content);
+    }
+    memset(&sea->shards[slot], 0, sizeof(st_shard));
+    return slot;
+}
+
 static void sea_push(st_sea *sea, char kind, const char *text, float resonance, int64_t step) {
     if (!text || !*text) return;
-    int slot;
-    if (sea->n < sea->capacity) { slot = sea->n++; }
-    else { slot = sea->head; sea->head = (sea->head + 1) % sea->capacity; free(sea->shards[slot].content); }
+    int slot = sea_alloc_slot(sea);
     sea->shards[slot].kind = kind;
     sea->shards[slot].content = strdup(text);
     sea->shards[slot].resonance = resonance;
     sea->shards[slot].created_step = step;
+}
+
+/* Refused shard: no content, only the pulse imprint of the moment Stanley
+ * chose silence. Dream replay clusters these and grows gravity around the
+ * recurring shapes — Stanley learns what kinds of pulses he keeps refusing. */
+static void sea_record_refused(st_sea *sea, st_pulse pulse, int64_t step) {
+    int slot = sea_alloc_slot(sea);
+    sea->shards[slot].kind = 'R';
+    sea->shards[slot].content = NULL;
+    sea->shards[slot].resonance = 0;
+    sea->shards[slot].created_step = step;
+    sea->shards[slot].pulse = pulse;
+}
+
+/* Pulse similarity in [0,1]: simple inverse L1 over the four pulse axes. */
+static float pulse_similarity(st_pulse a, st_pulse b) {
+    float d = fabsf(a.novelty - b.novelty)
+            + fabsf(a.arousal - b.arousal)
+            + fabsf(a.entropy - b.entropy)
+            + 0.5f * fabsf(a.valence - b.valence);
+    float sim = 1.0f - d / 3.5f;
+    if (sim < 0) sim = 0;
+    if (sim > 1) sim = 1;
+    return sim;
 }
 
 void stanley_crystallize(Stanley *s, const st_ring *rings, int n_rings) {
@@ -578,6 +643,7 @@ void stanley_dream(Stanley *s) {
     /* promote top internal shards into identity gravity */
     for (int i = 0; i < s->sea.n && s->me.n_gravity < STANLEY_TRIGRAM_GRAV; i++) {
         if (s->sea.shards[i].kind != 'I') continue;
+        if (!s->sea.shards[i].content) continue;
         uint32_t h = st_hash32(s->sea.shards[i].content, (int)strlen(s->sea.shards[i].content));
         /* skip duplicates */
         int dup = 0;
@@ -586,6 +652,50 @@ void stanley_dream(Stanley *s) {
         s->me.gravity[s->me.n_gravity] = h;
         s->me.gravity_strength[s->me.n_gravity] = s->sea.shards[i].resonance;
         s->me.n_gravity++;
+    }
+
+    /* Refused-shard clustering: scan R-shards, find clusters of similar pulse,
+     * and add the cluster centroid hash to identity.gravity. Next time a
+     * similar pulse arrives, the gravity weight tilts Stanley toward speaking
+     * instead of refusing — silence becomes a teacher. */
+    for (int i = 0; i < s->sea.n && s->me.n_gravity < STANLEY_TRIGRAM_GRAV; i++) {
+        if (s->sea.shards[i].kind != 'R') continue;
+        st_pulse a = s->sea.shards[i].pulse;
+        int cluster_n = 1;
+        st_pulse centroid = a;
+        for (int j = i + 1; j < s->sea.n; j++) {
+            if (s->sea.shards[j].kind != 'R') continue;
+            if (pulse_similarity(a, s->sea.shards[j].pulse) > 0.85f) {
+                centroid.novelty += s->sea.shards[j].pulse.novelty;
+                centroid.arousal += s->sea.shards[j].pulse.arousal;
+                centroid.entropy += s->sea.shards[j].pulse.entropy;
+                centroid.valence += s->sea.shards[j].pulse.valence;
+                cluster_n++;
+            }
+        }
+        if (cluster_n >= 3) {
+            centroid.novelty /= (float)cluster_n;
+            centroid.arousal /= (float)cluster_n;
+            centroid.entropy /= (float)cluster_n;
+            centroid.valence /= (float)cluster_n;
+            uint32_t h = (uint32_t)(centroid.novelty * 1000) * 2654435761u
+                      ^ (uint32_t)(centroid.arousal * 1000) * 0x9E3779B1u
+                      ^ (uint32_t)(centroid.entropy * 1000) * 0x85EBCA77u;
+            int dup = 0;
+            for (int g = 0; g < s->me.n_gravity; g++) if (s->me.gravity[g] == h) { dup = 1; break; }
+            if (!dup) {
+                s->me.gravity[s->me.n_gravity] = h;
+                s->me.gravity_strength[s->me.n_gravity] = 0.5f * (float)cluster_n;
+                s->me.n_gravity++;
+            }
+            /* clear all R-shards in this cluster so they don't double-count next dream */
+            for (int j = i; j < s->sea.n; j++) {
+                if (s->sea.shards[j].kind == 'R' &&
+                    pulse_similarity(a, s->sea.shards[j].pulse) > 0.85f) {
+                    s->sea.shards[j].kind = 'X';   /* tombstone */
+                }
+            }
+        }
     }
     /* relax chambers */
     for (int i = 0; i < STANLEY_N_CHAMBERS; i++) s->body.act[i] *= 0.6f;
@@ -599,13 +709,44 @@ void stanley_dream(Stanley *s) {
  * TICK — full cycle
  * ============================================================ */
 
+/* Record speak/silent outcome and drift coherence_floor toward maturity:
+ *   ratio > 0.7 → floor rises (Stanley speaks too freely, tighten the gate)
+ *   ratio < 0.2 → floor falls back toward baseline (don't let him go mute)
+ * Drift caps at baseline ± 0.3. Called once per tick after emit. */
+static void maturity_update(Stanley *s, int spoke) {
+    s->speak_window[s->speak_window_idx] = spoke ? 1 : 0;
+    s->speak_window_idx = (s->speak_window_idx + 1) % STANLEY_SPEAK_WINDOW;
+    if (s->speak_window_idx == 0) s->speak_window_filled = 1;
+
+    int N = s->speak_window_filled ? STANLEY_SPEAK_WINDOW : s->speak_window_idx;
+    if (N < 8) return;                                /* too thin to judge */
+    int sum = 0;
+    for (int i = 0; i < N; i++) sum += s->speak_window[i];
+    float ratio = (float)sum / (float)N;
+
+    float baseline = s->coherence_floor_baseline;
+    if (ratio > 0.7f && s->coherence_floor < baseline + 0.3f) {
+        s->coherence_floor = st_clamp(s->coherence_floor + 0.005f, 0, 1);
+    } else if (ratio < 0.2f && s->coherence_floor > baseline) {
+        s->coherence_floor = st_clamp(s->coherence_floor - 0.005f, 0, 1);
+    }
+}
+
 char *stanley_tick(Stanley *s, const char *input) {
+    s->last_input_ts = time(NULL);
+
     st_pulse p = stanley_pulse(s, input);
     chambers_inject(&s->body, p);
     chambers_step(&s->body, 0.2f);
 
     if (stanley_refuses(s, p)) {
+        pthread_mutex_lock(&s->mtx);
+        s->sea.step++;
+        sea_record_refused(&s->sea, p, s->sea.step);
+        pthread_mutex_unlock(&s->mtx);
+        s->n_refused++;
         stanley_accumulate(s, input, NULL);
+        maturity_update(s, 0);
         if (stanley_should_dream(s)) stanley_dream(s);
         return NULL;
     }
@@ -617,6 +758,7 @@ char *stanley_tick(Stanley *s, const char *input) {
 
     stanley_crystallize(s, rings, n_rings);
     stanley_accumulate(s, input, reply);
+    maturity_update(s, reply != NULL);
 
     if (stanley_should_dream(s)) stanley_dream(s);
     return reply;
@@ -699,9 +841,11 @@ int stanley_init(Stanley *s, const char *origin_path) {
     s->sea.capacity = STANLEY_MAX_SEA;
     s->sea.shards = (st_shard*)calloc(STANLEY_MAX_SEA, sizeof(st_shard));
     if (!s->sea.shards) { cooccur_free(&s->co); return -1; }
-    s->coherence_floor = 0.15f;
-    s->mass_threshold  = 0.85f;
-    s->max_rings       = STANLEY_MAX_RINGS;
+    s->coherence_floor          = 0.15f;
+    s->coherence_floor_baseline = 0.15f;
+    s->mass_threshold           = 0.85f;
+    s->max_rings                = STANLEY_MAX_RINGS;
+    s->last_input_ts            = time(NULL);
     pthread_mutex_init(&s->mtx, NULL);
 
     /* seed rng from time to vary across runs */
@@ -712,6 +856,8 @@ int stanley_init(Stanley *s, const char *origin_path) {
 }
 
 void stanley_free(Stanley *s) {
+    stanley_shimmer_stop(s);
+    stanley_graze_detach(s);
     pthread_mutex_destroy(&s->mtx);
     for (int i = 0; i < s->sea.n; i++) free(s->sea.shards[i].content);
     free(s->sea.shards);
@@ -727,7 +873,7 @@ void stanley_free(Stanley *s) {
 
 void stanley_repl(Stanley *s) {
     char line[2048];
-    printf("stanley 2.0 — weightless organism.\n");
+    printf("stanley %s — weightless organism.\n", STANLEY_VERSION);
     printf("  /quit to exit, /stats for state, /dream to force consolidation.\n");
     printf("  (silence is a valid reply — stanley may not speak.)\n\n");
     fflush(stdout);
@@ -740,19 +886,126 @@ void stanley_repl(Stanley *s) {
         if (L == 0) continue;
         if (!strcmp(line, "/quit")) break;
         if (!strcmp(line, "/stats")) {
-            printf("  vocab=%d  inputs=%lld  spoken=%lld  refused=%lld  dreams=%lld\n",
+            int graze_v = graze_vocab_size(s->graze);
+            int speak_n = s->speak_window_filled ? STANLEY_SPEAK_WINDOW : s->speak_window_idx;
+            int speak_sum = 0;
+            for (int i = 0; i < speak_n; i++) speak_sum += s->speak_window[i];
+            float ratio = speak_n > 0 ? (float)speak_sum / (float)speak_n : 0;
+            printf("  vocab=%d  inputs=%lld  spoken=%lld  refused=%lld  dreams=%lld  shimmers=%lld\n",
                    s->co.n_vocab,
                    (long long)s->n_inputs, (long long)s->n_spoken,
-                   (long long)s->n_refused, (long long)s->n_dreams);
+                   (long long)s->n_refused, (long long)s->n_dreams,
+                   (long long)s->n_shimmers);
             printf("  chambers: calm=%.2f spike=%.2f over=%.2f tired=%.2f overload=%.2f\n",
                    s->body.act[0], s->body.act[1], s->body.act[2], s->body.act[3], s->body.overload);
-            printf("  identity: fragments=%d gravity=%d  sea=%d\n",
-                   s->me.n_fragments, s->me.n_gravity, s->sea.n);
+            printf("  identity: fragments=%d gravity=%d  sea=%d  graze_vocab=%d\n",
+                   s->me.n_fragments, s->me.n_gravity, s->sea.n, graze_v);
+            printf("  maturity: speak_ratio=%.2f  coherence_floor=%.3f (baseline %.3f)\n",
+                   ratio, s->coherence_floor, s->coherence_floor_baseline);
             continue;
         }
         if (!strcmp(line, "/dream")) { stanley_dream(s); printf("  [dream]\n"); continue; }
+        if (!strcmp(line, "/shimmer")) { stanley_shimmer_now(s); printf("  [shimmer]\n"); continue; }
         char *reply = stanley_tick(s, line);
         if (reply) { printf("stanley> %s\n", reply); free(reply); }
         else       { printf("stanley> ...\n"); }
     }
+}
+
+/* ============================================================
+ * GRAZE — attach/detach optional GGUF vocab pasture
+ * ============================================================ */
+
+int stanley_graze_attach(Stanley *s, const char *gguf_path) {
+    if (!s || !gguf_path) return -1;
+    pthread_mutex_lock(&s->mtx);
+    if (s->graze) { graze_close(s->graze); s->graze = NULL; }
+    s->graze = graze_open(gguf_path);
+    int ok = (s->graze != NULL);
+    pthread_mutex_unlock(&s->mtx);
+    return ok ? 0 : -1;
+}
+
+void stanley_graze_detach(Stanley *s) {
+    if (!s) return;
+    pthread_mutex_lock(&s->mtx);
+    if (s->graze) { graze_close(s->graze); s->graze = NULL; }
+    pthread_mutex_unlock(&s->mtx);
+}
+
+/* ============================================================
+ * SHIMMER — Stanley dreams in silence
+ *
+ * After STANLEY_SHIMMER_IDLE_S seconds without input, if the chambers
+ * are calm enough, fire one internal pass: synthetic pulse from current
+ * body state, generate a deep ring, maybe crystallize. No speech, no
+ * accumulation from outside — pure self-talk.
+ * ============================================================ */
+
+static void shimmer_pass(Stanley *s) {
+    pthread_mutex_lock(&s->mtx);
+    if (s->co.n_vocab < 8) {        /* not enough field to dream from */
+        pthread_mutex_unlock(&s->mtx);
+        return;
+    }
+
+    /* synthesize an internal pulse — derived from body, not input. */
+    st_pulse p;
+    p.novelty = 0;
+    p.arousal = 0.1f * s->body.act[1];
+    p.entropy = 0.4f + 0.3f * (1.0f - s->body.act[0]);
+    p.valence = 0;
+
+    /* run a single deep ring — level 3 ("deep") for maximum reflection. */
+    st_ring r;
+    ring_generate(s, &r, 3, p.entropy);
+    s->n_shimmers++;
+
+    /* shimmer raises a tiny tired tick + chips overflow */
+    s->body.act[2] = st_clamp(s->body.act[2] + 0.02f, 0, 1);
+    s->body.act[3] = st_clamp(s->body.act[3] + 0.01f, 0, 1);
+
+    /* crystallize if it resonated */
+    if (r.resonance > 1.5f && r.meta_patterns >= 2) {
+        s->sea.step++;
+        sea_push(&s->sea, 'I', r.content, r.resonance, s->sea.step);
+    }
+    pthread_mutex_unlock(&s->mtx);
+}
+
+static void *shimmer_loop(void *arg) {
+    Stanley *s = (Stanley *)arg;
+    while (s->shimmer_running) {
+        sleep(STANLEY_SHIMMER_TICK_S);
+        if (!s->shimmer_running) break;
+        time_t now = time(NULL);
+        time_t last = s->last_input_ts;
+        if (now - last < STANLEY_SHIMMER_IDLE_S) continue;
+
+        float calm = s->body.act[0];
+        float over = s->body.act[2];
+        if (calm < 0.5f || over > 0.4f) continue;       /* not the right body */
+
+        shimmer_pass(s);
+    }
+    return NULL;
+}
+
+void stanley_shimmer_start(Stanley *s) {
+    if (!s || s->shimmer_running) return;
+    s->shimmer_running = 1;
+    if (pthread_create(&s->shimmer_thr, NULL, shimmer_loop, s) != 0) {
+        s->shimmer_running = 0;
+    }
+}
+
+void stanley_shimmer_stop(Stanley *s) {
+    if (!s || !s->shimmer_running) return;
+    s->shimmer_running = 0;
+    pthread_join(s->shimmer_thr, NULL);
+}
+
+void stanley_shimmer_now(Stanley *s) {
+    if (!s) return;
+    shimmer_pass(s);
 }

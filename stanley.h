@@ -23,7 +23,7 @@ extern "C" {
  * CONFIG
  * ============================================================ */
 
-#define STANLEY_VERSION       "2.0"
+#define STANLEY_VERSION       "2.1"
 #define STANLEY_MAX_VOCAB     8192      /* cooccur rows, grows as learned */
 #define STANLEY_MAX_WORD_LEN  64
 #define STANLEY_MAX_RINGS     5         /* echo, drift, shard, deep, void */
@@ -31,6 +31,9 @@ extern "C" {
 #define STANLEY_N_CHAMBERS    4         /* calm, spike, overflow, tired */
 #define STANLEY_RING_MAX_LEN  128       /* tokens per ring */
 #define STANLEY_TRIGRAM_GRAV  64        /* gravity-center trigrams kept */
+#define STANLEY_SPEAK_WINDOW  64        /* rolling history for adaptive maturity */
+#define STANLEY_SHIMMER_IDLE_S 60       /* idle threshold (s) before shimmer fires */
+#define STANLEY_SHIMMER_TICK_S 5        /* shimmer wakeup cadence (s) */
 
 /* ============================================================
  * TYPES
@@ -63,14 +66,16 @@ typedef struct {
 } st_ring;
 
 /* Shard — one memory atom in the sea.
- * External = happened (user interaction).
- * Internal = Stanley's own reflection that crystallized from a deep ring.
+ *   'E' external — happened (user interaction).
+ *   'I' internal — Stanley's own reflection that crystallized from a deep ring.
+ *   'R' refused  — a moment Stanley chose silence; pulse imprinted for dream replay.
  */
 typedef struct {
-    char    kind;                                /* 'E' external, 'I' internal */
-    char   *content;                             /* owned */
+    char    kind;                                /* 'E' / 'I' / 'R' */
+    char   *content;                             /* owned; may be NULL for 'R' */
     float   resonance;
     int64_t created_step;                        /* monotonic clock */
+    st_pulse pulse;                              /* the field state at write time (used by 'R') */
 } st_shard;
 
 typedef struct {
@@ -119,6 +124,9 @@ typedef struct {
     float overload;                              /* derived — triggers dream */
 } st_chambers;
 
+/* Forward declaration for the optional GGUF lexical substrate. */
+struct st_graze;
+
 /* Main organism. Opaque to users, all fields here only because C. */
 typedef struct {
     /* substrate + learned */
@@ -128,7 +136,8 @@ typedef struct {
     st_sea      sea;                             /* memory */
 
     /* config */
-    float coherence_floor;                       /* subjectivity refuse threshold */
+    float coherence_floor;                       /* subjectivity refuse threshold (live, may drift) */
+    float coherence_floor_baseline;              /* anchor — adaptive drift can move ±0.3 around this */
     float mass_threshold;                        /* chamber overload -> dream */
     int   max_rings;                             /* overthinking cap */
 
@@ -137,6 +146,20 @@ typedef struct {
     int64_t n_spoken;
     int64_t n_refused;
     int64_t n_dreams;
+    int64_t n_shimmers;                          /* unprompted internal passes */
+
+    /* adaptive maturity — rolling window of speak/silence outcomes */
+    uint8_t speak_window[STANLEY_SPEAK_WINDOW];
+    int     speak_window_idx;
+    int     speak_window_filled;
+
+    /* optional GGUF vocab pasture (may be NULL) */
+    struct st_graze *graze;
+
+    /* shimmer thread state */
+    pthread_t       shimmer_thr;
+    volatile int    shimmer_running;             /* 1 while loop alive */
+    volatile time_t last_input_ts;               /* monotonic-ish, set on every tick */
 
     /* threading: go side may touch cooccur/sea concurrently */
     pthread_mutex_t mtx;
@@ -214,6 +237,26 @@ char *stanley_tick(Stanley *s, const char *input);
 
 /* Blocking stdin REPL until EOF. For manual testing. */
 void stanley_repl(Stanley *s);
+
+/* ============================================================
+ * PHASE 2 — vocab_graze + shimmer + adaptive maturity
+ * ============================================================ */
+
+/* Attach an external GGUF as opt-in lexical pasture.
+ * Returns 0 on success, nonzero on failure (file missing, bad GGUF).
+ * Failure is non-fatal; Stanley keeps running on cooccur alone. */
+int  stanley_graze_attach(Stanley *s, const char *gguf_path);
+void stanley_graze_detach(Stanley *s);
+
+/* Start / stop the shimmer thread — Stanley dreams in silence
+ * after STANLEY_SHIMMER_IDLE_S seconds of no input. Safe to call
+ * stop multiple times. start is idempotent. */
+void stanley_shimmer_start(Stanley *s);
+void stanley_shimmer_stop(Stanley *s);
+
+/* Trigger one shimmer pass synchronously, regardless of idle / chambers.
+ * Used by tests and the REPL /shimmer command. */
+void stanley_shimmer_now(Stanley *s);
 
 #ifdef __cplusplus
 }
