@@ -20,9 +20,15 @@ Stanley is a **weightless organism** in pure C. No PyTorch. No Python. No pretra
 make
 ./stanley                                       # REPL with origin.txt
 ./stanley --no-origin                           # start silent, grow from conversation alone
-./stanley --graze weights/nano89-base-q8.gguf   # opt-in lexical pasture (any GGUF)
+./stanley --graze weights/nano89-base-q8.gguf   # opt-in lexical pasture (bundled — see below)
 ./stanley --shimmer                             # idle dream thread on
 ```
+
+**Bundled weights:** `weights/nano89-base-q8.gguf` (91 MB, Q8_0 quantized from
+[ataeff/nanollama nano89-base-f16](https://huggingface.co/ataeff/nanollama/tree/main/nano89)).
+89M-param SentencePiece BPE 32K vocab. Stanley reads only the metadata —
+tensor regions stay cold on disk via mmap, so the runtime cost is essentially
+zero. The graze hook is opt-in; nothing breaks if the file is missing.
 
 ## the thesis
 
