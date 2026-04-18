@@ -1,71 +1,68 @@
 /*
- * test_graze.c — verifies graze.c reads vocab from a real GGUF file.
+ * test_graze.c — GGUF metadata vocab harvester.
  *
- * Pass the GGUF path as argv[1]. Default tries common local files.
- * Prints first 10 tokens + 5 random words, asserts vocab > 1000.
+ * Exits 77 (SKIP) if no GGUF is available on the host.
  */
 #include "../graze.h"
+#include "check.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-static const char *fallback_paths[] = {
-    "/Users/ataeff/Downloads/nanollama/weights/nano-base-q4_0.gguf",
-    "/Users/ataeff/Downloads/nanollama/weights/nano-f16.gguf",
-    NULL,
-};
-
-static const char *resolve_path(int argc, char **argv) {
+static const char *resolve_gguf(int argc, char **argv) {
     if (argc > 1) return argv[1];
-    for (int i = 0; fallback_paths[i]; i++) {
-        if (access(fallback_paths[i], R_OK) == 0) return fallback_paths[i];
-    }
+    static const char *candidates[] = {
+        "weights/nano89-base-q4.gguf",
+        "/Users/ataeff/Downloads/nanollama/weights/nano-base-q4_0.gguf",
+        "/Users/ataeff/Downloads/nanollama/weights/nano-f16.gguf",
+        NULL,
+    };
+    for (int i = 0; candidates[i]; i++)
+        if (access(candidates[i], R_OK) == 0) return candidates[i];
     return NULL;
 }
 
 int main(int argc, char **argv) {
-    const char *path = resolve_path(argc, argv);
+    /* missing-file case is ALWAYS testable */
+    st_graze *g_missing = graze_open("/nonexistent/path/does/not/exist.gguf");
+    CHECK(g_missing == NULL, "graze_open returns NULL on missing file");
+    CHECK(graze_vocab_size(NULL) == 0, "vocab_size on NULL is 0");
+    CHECK(graze_token(NULL, 0) == NULL, "token() on NULL returns NULL");
+    CHECK(graze_random_word(NULL) == NULL, "random_word() on NULL returns NULL");
+    graze_close(NULL);                       /* must not crash */
+
+    const char *path = resolve_gguf(argc, argv);
     if (!path) {
-        fprintf(stderr, "test_graze: no GGUF available; pass one as argv[1]\n");
-        return 77; /* SKIP exit code */
+        printf("  [SKIP] no GGUF available; pass one as argv[1] to enable parsing checks\n");
+        CHECK_REPORT("graze (partial)");
     }
 
-    printf("[graze] opening %s\n", path);
+    printf("  [info] using %s\n", path);
     st_graze *g = graze_open(path);
-    if (!g) {
-        fprintf(stderr, "FAIL: graze_open returned NULL\n");
-        return 1;
-    }
-
+    CHECK(g != NULL, "graze_open succeeds on real GGUF");
     int vsz = graze_vocab_size(g);
-    printf("[graze] vocab_size = %d\n", vsz);
-    if (vsz < 1000) {
-        fprintf(stderr, "FAIL: vocab too small (%d, expected > 1000)\n", vsz);
-        graze_close(g);
-        return 1;
-    }
+    CHECK(vsz >= 1000, "vocab size >= 1000");
 
-    printf("[graze] first 10 tokens:\n");
-    for (int i = 0; i < 10 && i < vsz; i++) {
-        const char *t = graze_token(g, i);
-        printf("  [%2d] '%s'\n", i, t ? t : "(null)");
-    }
+    /* control tokens at index 0–2 in any LLaMA-family GGUF */
+    const char *t0 = graze_token(g, 0);
+    const char *t1 = graze_token(g, 1);
+    CHECK(t0 && t0[0] == '<', "token[0] is a control marker (starts with '<')");
+    CHECK(t1 && t1[0] == '<', "token[1] is a control marker");
 
-    printf("[graze] 5 random words:\n");
-    int got = 0;
-    for (int i = 0; i < 5; i++) {
+    /* random_word skips control tokens and SentencePiece markers */
+    int got_words = 0, got_clean = 1;
+    for (int i = 0; i < 8; i++) {
         const char *w = graze_random_word(g);
-        if (w) { printf("  '%s'\n", w); got++; }
+        if (w) {
+            got_words++;
+            if (w[0] == '<' || w[0] == '[') got_clean = 0;
+        }
     }
-    if (got == 0) {
-        fprintf(stderr, "FAIL: graze_random_word returned NULL 5 times\n");
-        graze_close(g);
-        return 1;
-    }
+    CHECK(got_words > 0, "random_word returns non-NULL at least once in 8 tries");
+    CHECK(got_clean, "random_word never returns control-marked tokens");
 
     graze_close(g);
-    printf("PASS test_graze\n");
-    return 0;
+    CHECK_REPORT("graze");
 }
