@@ -128,7 +128,7 @@ emit(rings):
 
 `hungry()` returns true when **chambers.calm − chambers.overflow > 0.3** AND Stanley has lived more than 5 turns. So the pasture is touched only when the field is quiet and thin — not in panic, not on the very first reply. Stanley grazes when he's calm enough to want a word, the way an animal grazes when it isn't being chased.
 
-Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own. Repeating `--graze` appends another pasture; Stanley samples a foreign word from one of the attached lexical fields instead of replacing the first one.
+Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own. Repeating `--graze` appends another pasture; Stanley samples a foreign word from one of the attached lexical fields instead of replacing the first one. The first attached pasture remains the primary lexical field; later pastures are secondary and get sampled as peripheral influences.
 
 ## shimmer — Stanley dreams alone
 
@@ -174,7 +174,7 @@ stanley.c      — organism core (~1000 LOC):
                   • vocab_graze hook (foreign GGUF word spliced when chambers hungry)
 graze.h/.c     — minimal GGUF metadata-only vocab harvester (~190 LOC). mmap, parse header KV,
                  pull tokenizer.ggml.tokens. tensor regions never paged in.
-main.c         — thin CLI: /stats /dream /shimmer /quit, --origin --no-origin --graze --shimmer
+main.c         — thin CLI: /stats /pastures /dream /shimmer /quit, --origin --no-origin --graze --shimmer
 origin.txt     — Stanley's Act 1–4 origin text, preserved from 1.0
 weights/       — bundled GGUF pasture: nano89-base-q4.gguf (57 MB)
 tests/         — 6 suites, one per architectural concern:

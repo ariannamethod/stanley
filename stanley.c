@@ -47,6 +47,15 @@ static float st_clamp(float x, float lo, float hi) {
     return x < lo ? lo : (x > hi ? hi : x);
 }
 
+static char *st_strdup_local(const char *s) {
+    if (!s) return NULL;
+    size_t n = strlen(s);
+    char *out = (char *)malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, s, n + 1);
+    return out;
+}
+
 /* ============================================================
  * VOCAB — hash-indexed word store inside st_cooccur
  * ============================================================ */
@@ -500,9 +509,11 @@ static int graze_total_vocab(const Stanley *s) {
 
 static const char *graze_pick_word(const Stanley *s) {
     if (!s || s->n_grazes <= 0) return NULL;
-    int start = (int)(st_randu() * (float)s->n_grazes);
-    if (start < 0) start = 0;
-    if (start >= s->n_grazes) start = s->n_grazes - 1;
+    int start = 0;
+    if (s->n_grazes > 1 && st_randu() >= STANLEY_PRIMARY_GRAZE_BIAS) {
+        start = 1 + (int)(st_randu() * (float)(s->n_grazes - 1));
+        if (start >= s->n_grazes) start = s->n_grazes - 1;
+    }
     for (int off = 0; off < s->n_grazes; off++) {
         int idx = (start + off) % s->n_grazes;
         const char *w = graze_random_word(s->grazes[idx]);
@@ -926,6 +937,17 @@ void stanley_repl(Stanley *s) {
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
             continue;
         }
+        if (!strcmp(line, "/pastures")) {
+            printf("  pastures=%d\n", s->n_grazes);
+            for (int i = 0; i < s->n_grazes; i++) {
+                printf("  %c pasture[%d]: %s (vocab=%d)\n",
+                       i == 0 ? '*' : '-',
+                       i,
+                       s->graze_labels[i] ? s->graze_labels[i] : "(unknown)",
+                       graze_vocab_size(s->grazes[i]));
+            }
+            continue;
+        }
         if (!strcmp(line, "/dream")) { stanley_dream(s); printf("  [dream]\n"); continue; }
         if (!strcmp(line, "/shimmer")) { stanley_shimmer_now(s); printf("  [shimmer]\n"); continue; }
         char *reply = stanley_tick(s, line);
@@ -941,6 +963,7 @@ void stanley_repl(Stanley *s) {
 int stanley_graze_attach(Stanley *s, const char *gguf_path) {
     if (!s || !gguf_path) return -1;
     st_graze *g;
+    char *label = NULL;
     pthread_mutex_lock(&s->mtx);
     if (s->n_grazes >= STANLEY_MAX_GRAZES) {
         pthread_mutex_unlock(&s->mtx);
@@ -948,7 +971,10 @@ int stanley_graze_attach(Stanley *s, const char *gguf_path) {
     }
     g = graze_open(gguf_path);
     if (g) {
-        s->grazes[s->n_grazes++] = g;
+        label = st_strdup_local(gguf_path);
+        s->grazes[s->n_grazes] = g;
+        s->graze_labels[s->n_grazes] = label;
+        s->n_grazes++;
     }
     int ok = (g != NULL);
     pthread_mutex_unlock(&s->mtx);
@@ -962,6 +988,10 @@ void stanley_graze_detach(Stanley *s) {
         if (s->grazes[i]) {
             graze_close(s->grazes[i]);
             s->grazes[i] = NULL;
+        }
+        if (s->graze_labels[i]) {
+            free(s->graze_labels[i]);
+            s->graze_labels[i] = NULL;
         }
     }
     s->n_grazes = 0;

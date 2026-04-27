@@ -35,6 +35,7 @@ extern "C" {
 #define STANLEY_SHIMMER_IDLE_S 60       /* idle threshold (s) before shimmer fires */
 #define STANLEY_SHIMMER_TICK_S 5        /* shimmer wakeup cadence (s) */
 #define STANLEY_MAX_GRAZES    8         /* max external lexical pastures */
+#define STANLEY_PRIMARY_GRAZE_BIAS 0.70f/* favor the first pasture as the main lexical field */
 
 /* ============================================================
  * TYPES
@@ -156,6 +157,7 @@ typedef struct {
 
     /* optional GGUF vocab pastures (may all be NULL) */
     struct st_graze *grazes[STANLEY_MAX_GRAZES];
+    char            *graze_labels[STANLEY_MAX_GRAZES];
     int              n_grazes;
 
     /* shimmer thread state */
