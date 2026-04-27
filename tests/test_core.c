@@ -44,6 +44,24 @@ int main(void) {
     CHECK(s.body.act[2] < 1.0f, "dream relaxes overflow chamber");
     CHECK(s.body.overload == 0.0f, "dream clears overload");
 
+    /* ----- strong deep ring crystallizes into an internal shard ----- */
+    st_ring deep = {0};
+    deep.level = 3;
+    deep.length = 15;
+    deep.resonance = 2.4f;
+    deep.meta_patterns = 1;
+    strcpy(deep.content, "pressure becomes form in the dark");
+    s.body.overload = 0.9f;
+    s.body.act[3] = 0.4f;
+    int sea_before = s.sea.n;
+    stanley_crystallize(&s, &deep, 1);
+    CHECK(s.sea.n == sea_before + 1, "strong ring crystallizes into an internal shard");
+    CHECK(s.sea.shards[s.sea.n - 1].kind == 'I', "crystallized shard kind is I");
+
+    /* same ring immediately after should not duplicate in the recent window */
+    stanley_crystallize(&s, &deep, 1);
+    CHECK(s.sea.n == sea_before + 1, "recent duplicate internal shard is suppressed");
+
     /* ----- refuse gate fires under chamber overload + hot pulse ----- */
     s.body.act[2] = 0.9f;
     st_pulse hot = { .novelty = 0.5f, .arousal = 0.9f, .entropy = 0.8f, .valence = 0.0f };

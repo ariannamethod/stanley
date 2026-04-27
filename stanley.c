@@ -993,12 +993,56 @@ static float pulse_similarity(st_pulse a, st_pulse b) {
     return sim;
 }
 
+static int sea_recent_internal_duplicate(const Stanley *s, const char *text, int window) {
+    if (!s || !text || !*text || window <= 0) return 0;
+    int seen = 0;
+    for (int off = 0; off < s->sea.n && seen < window; off++) {
+        int idx = s->sea.n - 1 - off;
+        if (idx < 0) break;
+        const st_shard *sh = &s->sea.shards[idx];
+        if (sh->kind != 'I' || !sh->content) continue;
+        seen++;
+        if (strcmp(sh->content, text) == 0) return 1;
+    }
+    return 0;
+}
+
+static float ring_crystallize_pressure(const Stanley *s, const st_ring *r) {
+    if (!s || !r || !r->content[0]) return 0.0f;
+    float pressure = 0.0f;
+    pressure += 0.18f * (float)(r->level + 1);
+    pressure += 0.28f * r->resonance;
+    pressure += 0.10f * (float)r->meta_patterns;
+    pressure += 0.20f * s->body.overload;
+    pressure += 0.10f * s->body.act[3];
+    if (r->level >= 2 && s->sea.n == 0) pressure += 0.22f;  /* bootstrap first internal shards */
+    if (r->meta_patterns >= 2) pressure += 0.18f;
+    if (r->length <= 18) pressure += 0.06f;                  /* short dense rings crystallize easier */
+    return pressure;
+}
+
 void stanley_crystallize(Stanley *s, const st_ring *rings, int n_rings) {
     pthread_mutex_lock(&s->mtx);
     s->sea.step++;
     for (int i = 0; i < n_rings; i++) {
-        if (rings[i].level >= 3 && rings[i].meta_patterns >= 3 && st_randu() < 0.3f) {
-            sea_push(&s->sea, 'I', rings[i].content, rings[i].resonance, s->sea.step);
+        const st_ring *r = &rings[i];
+        if (!r->content[0]) continue;
+        if (sea_recent_internal_duplicate(s, r->content, 6)) continue;
+
+        float pressure = ring_crystallize_pressure(s, r);
+        int crystallize = 0;
+
+        if (r->level >= 3 && r->meta_patterns >= 3) {
+            crystallize = 1;
+        } else if (pressure >= 1.45f) {
+            crystallize = 1;
+        } else if (pressure >= 1.05f) {
+            float p = 0.15f + 0.22f * (pressure - 1.05f);
+            if (st_randu() < st_clamp(p, 0.10f, 0.45f)) crystallize = 1;
+        }
+
+        if (crystallize) {
+            sea_push(&s->sea, 'I', r->content, r->resonance, s->sea.step);
         }
     }
     pthread_mutex_unlock(&s->mtx);
