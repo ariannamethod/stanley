@@ -522,6 +522,44 @@ typedef struct {
     float score;
 } st_graze_offer;
 
+static float sea_recent_charge(const Stanley *s, char kind, int window) {
+    if (!s || window <= 0 || s->sea.n <= 0) return 0.0f;
+    int seen = 0;
+    float charge = 0.0f;
+    for (int off = 0; off < s->sea.n && seen < window; off++) {
+        int idx = s->sea.n - 1 - off;
+        if (idx < 0) break;
+        const st_shard *sh = &s->sea.shards[idx];
+        if (sh->kind != kind) continue;
+        float w = 1.0f - 0.08f * (float)seen;
+        if (w < 0.2f) w = 0.2f;
+        charge += w * (kind == 'I' ? sh->resonance + 0.2f : sh->pulse.arousal + 0.3f * sh->pulse.entropy);
+        seen++;
+    }
+    return charge;
+}
+
+static int sea_word_echoes(const Stanley *s, char kind, const char *word, int window) {
+    if (!s || !word || !*word || window <= 0) return 0;
+    int hits = 0;
+    int seen = 0;
+    for (int off = 0; off < s->sea.n && seen < window; off++) {
+        int idx = s->sea.n - 1 - off;
+        if (idx < 0) break;
+        const st_shard *sh = &s->sea.shards[idx];
+        if (sh->kind != kind) continue;
+        seen++;
+        if (sh->content && strstr(sh->content, word)) hits++;
+    }
+    return hits;
+}
+
+static float gravity_pressure(const Stanley *s) {
+    if (!s || s->me.n_gravity <= 0) return 0.0f;
+    float p = (float)s->me.n_gravity / 12.0f;
+    return st_clamp(p, 0.0f, 1.5f);
+}
+
 static float graze_pasture_pull(const Stanley *s, int idx, int angle_idx) {
     if (!s || idx < 0 || idx >= s->n_grazes || !s->grazes[idx]) return 0.0f;
     float calm  = s->body.act[0];
@@ -613,6 +651,37 @@ static float graze_pasture_pull(const Stanley *s, int idx, int angle_idx) {
     return st_clamp(pull, 0.05f, 2.50f);
 }
 
+static float graze_memory_pull(const Stanley *s, int idx, int angle_idx, const char *word) {
+    if (!s || idx < 0 || idx >= s->n_grazes) return 0.0f;
+    float internal = sea_recent_charge(s, 'I', 6);
+    float refused  = sea_recent_charge(s, 'R', 6);
+    float gravity  = gravity_pressure(s);
+    int internal_echo = sea_word_echoes(s, 'I', word, 8);
+
+    float score = 0.0f;
+    if (internal_echo > 0) score += 0.12f * (float)internal_echo;
+    if (graze_profile_size(s->grazes[idx]) > 0) {
+        score += 0.05f * gravity;
+        score += 0.03f * internal;
+    }
+
+    switch (angle_idx) {
+        case 0: /* calm remembers its own inward continuity */
+            if (idx == 0) score += 0.10f * internal + 0.06f * gravity;
+            else          score += 0.02f * internal;
+            break;
+        case 1: /* wound leans toward profiled/peripheral fields when refusals pile up */
+            if (idx > 0) score += 0.08f * refused + 0.03f * gravity;
+            else         score += 0.02f * refused;
+            break;
+        default: /* contradiction is where gravity starts bending the foreign */
+            if (idx > 0) score += 0.06f * gravity + 0.05f * refused;
+            else         score += 0.03f * gravity;
+            break;
+    }
+    return score;
+}
+
 static int graze_pick_pasture(const Stanley *s, int angle_idx) {
     if (!s || s->n_grazes <= 0) return -1;
     float total = 0.0f;
@@ -669,6 +738,7 @@ static int graze_collect_offer(Stanley *s, const char *ring_text, int angle_idx,
         if (w && *w) {
             float score = graze_pasture_pull(s, idx, angle_idx);
             score += graze_word_dissonance(ring_text, w);
+            score += graze_memory_pull(s, idx, angle_idx, w);
             if (graze_profile_size(s->grazes[idx]) > 0) score += 0.15f;
             if (angle_idx == 2 && idx > 0) score += 0.10f;
             offer->word = w;
@@ -1111,6 +1181,10 @@ void stanley_repl(Stanley *s) {
             printf("  identity: fragments=%d gravity=%d  sea=%d  pastures=%d  graze_vocab=%d\n",
                    s->me.n_fragments, s->me.n_gravity, s->sea.n, s->n_grazes, graze_v);
             printf("  grazing: profiled=%d\n", graze_profiled_pastures(s));
+            printf("  memory: internal_charge=%.2f refused_charge=%.2f gravity_pressure=%.2f\n",
+                   sea_recent_charge(s, 'I', 6),
+                   sea_recent_charge(s, 'R', 6),
+                   gravity_pressure(s));
             printf("  maturity: speak_ratio=%.2f  coherence_floor=%.3f (baseline %.3f)\n",
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
             continue;
