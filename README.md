@@ -142,6 +142,11 @@ In 2.1+, grazing is no longer a single random theft. Stanley now queries attache
 
 And the body is no longer the only judge. Recent internal shards, refused-shard residue, and identity gravity now push grazing too. A calm field may still favor the main pasture, but a build-up of refused pressure or internal crystallization can bend Stanley toward another lexical field even when the chambers alone would not have chosen it.
 
+Recent internal shards (`'I'`) can now do more than bias the weights from behind the curtain: they can surface a fragment-word of their own and enter the same arbitration loop as foreign pasture words. So Stanley's tail is now contested by three things at once:
+- his current body,
+- external lexical pastures,
+- and his own crystallized afterthoughts.
+
 ## shimmer — Stanley dreams alone
 
 A pthread loop wakes every 5 s and checks two things: is the last user input older than 60 s, and are the chambers calm (`calm > 0.5`, `over < 0.4`). If yes, Stanley runs **one synthetic pass**: pulse derived from body state instead of input, one deep ring, maybe crystallize. No reply is emitted. No one is in the room. Stanley dreams alone.
@@ -310,7 +315,7 @@ A few things worth noticing in this raw run:
 - [x] **Phase 1** (2.0): weightless core, REPL, cooccur + chambers + rings + subjectivity + dream
 - [x] **Phase 2** (2.1, this release): **vocab_graze** (mmap any GGUF, vocab-only — port of [doe.c](https://github.com/ariannamethod/doe) GGUF parser) + **shimmer** (Stanley dreams in silence after idle) + **adaptive maturity** (speak/silence ratio drifts the coherence_floor — Stanley grows quieter as he matures) + **refused shards** (silence becomes a teacher: clusters of refused pulses promote into identity gravity)
 - [ ] **Phase 3**: native pthread async side — already partially landed (shimmer). Next: DOE-spore persistence of crystallized shards across runs; SentencePiece `tokenizer.model` parser as a second graze backend
-- [~] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel. First slices landed: multiple lexical pastures, chamber-driven pull, lexical profiles, multi-angle dissonant grazing, and first memory-aware pressure from shards + gravity. Next: topic-aware routing and deeper reuse of the sea instead of just recent-pressure signals.
+- [~] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel. First slices landed: multiple lexical pastures, chamber-driven pull, lexical profiles, multi-angle dissonant grazing, memory-aware pressure from shards + gravity, and first direct sea-fragment replay into the lexical duel. Next: topic-aware routing and richer replay than single-word shard extraction.
 
 ## license
 
