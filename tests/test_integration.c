@@ -65,7 +65,7 @@ int main(void) {
     int vocab_before = s.co.n_vocab;
     int rc = stanley_graze_attach(&s, "/nonexistent.gguf");
     CHECK(rc != 0, "graze_attach on missing path fails gracefully");
-    CHECK(s.graze == NULL, "graze pointer remains NULL after failed attach");
+    CHECK(s.n_grazes == 0, "failed attach leaves pasture count at 0");
     CHECK(s.co.n_vocab == vocab_before, "failed attach does not corrupt cooccur");
 
     stanley_free(&s);

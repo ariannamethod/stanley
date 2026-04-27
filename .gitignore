@@ -222,3 +222,9 @@ flagged/
 *.o
 /stanley
 /tests/test_stanley
+/tests/test_core
+/tests/test_graze
+/tests/test_integration
+/tests/test_maturity
+/tests/test_refused
+/tests/test_shimmer

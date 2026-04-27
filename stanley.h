@@ -34,6 +34,7 @@ extern "C" {
 #define STANLEY_SPEAK_WINDOW  64        /* rolling history for adaptive maturity */
 #define STANLEY_SHIMMER_IDLE_S 60       /* idle threshold (s) before shimmer fires */
 #define STANLEY_SHIMMER_TICK_S 5        /* shimmer wakeup cadence (s) */
+#define STANLEY_MAX_GRAZES    8         /* max external lexical pastures */
 
 /* ============================================================
  * TYPES
@@ -153,8 +154,9 @@ typedef struct {
     int     speak_window_idx;
     int     speak_window_filled;
 
-    /* optional GGUF vocab pasture (may be NULL) */
-    struct st_graze *graze;
+    /* optional GGUF vocab pastures (may all be NULL) */
+    struct st_graze *grazes[STANLEY_MAX_GRAZES];
+    int              n_grazes;
 
     /* shimmer thread state */
     pthread_t       shimmer_thr;

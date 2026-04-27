@@ -21,6 +21,7 @@ make
 ./stanley                                       # REPL with origin.txt
 ./stanley --no-origin                           # start silent, grow from conversation alone
 ./stanley --graze weights/nano89-base-q4.gguf   # opt-in lexical pasture (bundled — see below)
+./stanley --graze weights/nano89-base-q4.gguf --graze /path/to/janus.gguf
 ./stanley --shimmer                             # idle dream thread on
 ```
 
@@ -127,7 +128,7 @@ emit(rings):
 
 `hungry()` returns true when **chambers.calm − chambers.overflow > 0.3** AND Stanley has lived more than 5 turns. So the pasture is touched only when the field is quiet and thin — not in panic, not on the very first reply. Stanley grazes when he's calm enough to want a word, the way an animal grazes when it isn't being chased.
 
-Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own.
+Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own. Repeating `--graze` appends another pasture; Stanley samples a foreign word from one of the attached lexical fields instead of replacing the first one.
 
 ## shimmer — Stanley dreams alone
 
@@ -239,7 +240,7 @@ you> /shimmer
   [shimmer]
 you> /stats
   vocab=44  inputs=10  spoken=3  refused=7  dreams=1  shimmers=1
-  identity: fragments=0  gravity=1  sea=7  graze_vocab=32000             ← R-cluster promoted!
+  identity: fragments=0  gravity=1  sea=7  pastures=1  graze_vocab=32000  ← R-cluster promoted!
   maturity: speak_ratio=0.30  coherence_floor=0.150 (baseline 0.150)
 
 you> are you listening

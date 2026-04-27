@@ -18,18 +18,27 @@
 
 static void usage(const char *p) {
     printf("stanley %s — weightless organism.\n", STANLEY_VERSION);
-    printf("usage: %s [--origin PATH] [--no-origin] [--graze GGUF] [--shimmer] [--help]\n", p);
+    printf("usage: %s [--origin PATH] [--no-origin] [--graze GGUF]... [--shimmer] [--help]\n", p);
 }
 
 int main(int argc, char **argv) {
     const char *origin = "origin.txt";
-    const char *graze_path = NULL;
+    const char *graze_paths[STANLEY_MAX_GRAZES];
+    int n_graze_paths = 0;
     int shimmer = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) { usage(argv[0]); return 0; }
         if (!strcmp(argv[i], "--no-origin")) origin = NULL;
         else if (!strcmp(argv[i], "--origin") && i + 1 < argc) origin = argv[++i];
-        else if (!strcmp(argv[i], "--graze")  && i + 1 < argc) graze_path = argv[++i];
+        else if (!strcmp(argv[i], "--graze")  && i + 1 < argc) {
+            const char *path = argv[++i];
+            if (n_graze_paths < STANLEY_MAX_GRAZES) {
+                graze_paths[n_graze_paths++] = path;
+            } else {
+                fprintf(stderr, "stanley: too many --graze pastures (max %d); ignoring %s\n",
+                        STANLEY_MAX_GRAZES, path);
+            }
+        }
         else if (!strcmp(argv[i], "--shimmer")) shimmer = 1;
     }
     Stanley s;
@@ -37,11 +46,11 @@ int main(int argc, char **argv) {
         fprintf(stderr, "stanley: init failed\n");
         return 1;
     }
-    if (graze_path) {
-        if (stanley_graze_attach(&s, graze_path) != 0) {
-            fprintf(stderr, "stanley: graze attach failed for %s — continuing weightless\n", graze_path);
+    for (int i = 0; i < n_graze_paths; i++) {
+        if (stanley_graze_attach(&s, graze_paths[i]) != 0) {
+            fprintf(stderr, "stanley: graze attach failed for %s — continuing weightless\n", graze_paths[i]);
         } else {
-            fprintf(stderr, "stanley: grazing on %s\n", graze_path);
+            fprintf(stderr, "stanley: grazing on %s\n", graze_paths[i]);
         }
     }
     if (shimmer) {

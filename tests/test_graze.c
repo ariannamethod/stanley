@@ -4,6 +4,7 @@
  * Exits 77 (SKIP) if no GGUF is available on the host.
  */
 #include "../graze.h"
+#include "../stanley.h"
 #include "check.h"
 
 #include <stdio.h>
@@ -64,5 +65,15 @@ int main(int argc, char **argv) {
     CHECK(got_clean, "random_word never returns control-marked tokens");
 
     graze_close(g);
+
+    /* organism-level attach semantics: repeated attach appends a new pasture */
+    Stanley s;
+    CHECK(stanley_init(&s, NULL) == 0, "stanley_init for multi-graze check");
+    CHECK(stanley_graze_attach(&s, path) == 0, "first graze attach succeeds");
+    CHECK(s.n_grazes == 1, "first attach creates one pasture");
+    CHECK(stanley_graze_attach(&s, path) == 0, "second graze attach also succeeds");
+    CHECK(s.n_grazes == 2, "second attach appends instead of replacing");
+    stanley_free(&s);
+
     CHECK_REPORT("graze");
 }

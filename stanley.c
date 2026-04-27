@@ -489,8 +489,30 @@ int stanley_overthink(Stanley *s, st_pulse p, const char *input, st_ring *rings)
 /* Hunger heuristic: Stanley is willing to graze a foreign word when his own
  * field is calm but thin — calm chamber high, overflow low, and he's lived
  * enough turns that his cooccur is no longer pristine. */
+static int graze_total_vocab(const Stanley *s) {
+    int total = 0;
+    if (!s) return 0;
+    for (int i = 0; i < s->n_grazes; i++) {
+        total += graze_vocab_size(s->grazes[i]);
+    }
+    return total;
+}
+
+static const char *graze_pick_word(const Stanley *s) {
+    if (!s || s->n_grazes <= 0) return NULL;
+    int start = (int)(st_randu() * (float)s->n_grazes);
+    if (start < 0) start = 0;
+    if (start >= s->n_grazes) start = s->n_grazes - 1;
+    for (int off = 0; off < s->n_grazes; off++) {
+        int idx = (start + off) % s->n_grazes;
+        const char *w = graze_random_word(s->grazes[idx]);
+        if (w && *w) return w;
+    }
+    return NULL;
+}
+
 static int graze_hungry(const Stanley *s) {
-    if (!s->graze) return 0;
+    if (!s || s->n_grazes <= 0) return 0;
     float calm = s->body.act[0];
     float over = s->body.act[2];
     return (calm - over > 0.3f) && (s->n_inputs > 5);
@@ -520,7 +542,7 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
      * the ring tail. Stanley is still speaking from his ring — the foreign
      * token enters as resonance margin, not as a substitute thought. */
     if (graze_hungry(s) && st_randu() < 0.25f) {
-        const char *foreign = graze_random_word(s->graze);
+        const char *foreign = graze_pick_word(s);
         if (foreign && *foreign) {
             size_t base_n = strlen(txt);
             size_t for_n  = strlen(foreign);
@@ -886,7 +908,7 @@ void stanley_repl(Stanley *s) {
         if (L == 0) continue;
         if (!strcmp(line, "/quit")) break;
         if (!strcmp(line, "/stats")) {
-            int graze_v = graze_vocab_size(s->graze);
+            int graze_v = graze_total_vocab(s);
             int speak_n = s->speak_window_filled ? STANLEY_SPEAK_WINDOW : s->speak_window_idx;
             int speak_sum = 0;
             for (int i = 0; i < speak_n; i++) speak_sum += s->speak_window[i];
@@ -898,8 +920,8 @@ void stanley_repl(Stanley *s) {
                    (long long)s->n_shimmers);
             printf("  chambers: calm=%.2f spike=%.2f over=%.2f tired=%.2f overload=%.2f\n",
                    s->body.act[0], s->body.act[1], s->body.act[2], s->body.act[3], s->body.overload);
-            printf("  identity: fragments=%d gravity=%d  sea=%d  graze_vocab=%d\n",
-                   s->me.n_fragments, s->me.n_gravity, s->sea.n, graze_v);
+            printf("  identity: fragments=%d gravity=%d  sea=%d  pastures=%d  graze_vocab=%d\n",
+                   s->me.n_fragments, s->me.n_gravity, s->sea.n, s->n_grazes, graze_v);
             printf("  maturity: speak_ratio=%.2f  coherence_floor=%.3f (baseline %.3f)\n",
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
             continue;
@@ -918,10 +940,17 @@ void stanley_repl(Stanley *s) {
 
 int stanley_graze_attach(Stanley *s, const char *gguf_path) {
     if (!s || !gguf_path) return -1;
+    st_graze *g;
     pthread_mutex_lock(&s->mtx);
-    if (s->graze) { graze_close(s->graze); s->graze = NULL; }
-    s->graze = graze_open(gguf_path);
-    int ok = (s->graze != NULL);
+    if (s->n_grazes >= STANLEY_MAX_GRAZES) {
+        pthread_mutex_unlock(&s->mtx);
+        return -1;
+    }
+    g = graze_open(gguf_path);
+    if (g) {
+        s->grazes[s->n_grazes++] = g;
+    }
+    int ok = (g != NULL);
     pthread_mutex_unlock(&s->mtx);
     return ok ? 0 : -1;
 }
@@ -929,7 +958,13 @@ int stanley_graze_attach(Stanley *s, const char *gguf_path) {
 void stanley_graze_detach(Stanley *s) {
     if (!s) return;
     pthread_mutex_lock(&s->mtx);
-    if (s->graze) { graze_close(s->graze); s->graze = NULL; }
+    for (int i = 0; i < s->n_grazes; i++) {
+        if (s->grazes[i]) {
+            graze_close(s->grazes[i]);
+            s->grazes[i] = NULL;
+        }
+    }
+    s->n_grazes = 0;
     pthread_mutex_unlock(&s->mtx);
 }
 
