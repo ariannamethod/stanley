@@ -128,7 +128,7 @@ emit(rings):
 
 `hungry()` returns true when **chambers.calm − chambers.overflow > 0.3** AND Stanley has lived more than 5 turns. So the pasture is touched only when the field is quiet and thin — not in panic, not on the very first reply. Stanley grazes when he's calm enough to want a word, the way an animal grazes when it isn't being chased.
 
-Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own. Repeating `--graze` appends another pasture; Stanley samples a foreign word from one of the attached lexical fields instead of replacing the first one. The first attached pasture remains the primary lexical field; later pastures are secondary and get sampled as peripheral influences.
+Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own. Repeating `--graze` appends another pasture; Stanley samples a foreign word from one of the attached lexical fields instead of replacing the first one. The first attached pasture remains the primary lexical field, but later pastures are no longer just dead satellites: chamber state pulls on them differently. Calm/thin states favor the primary field; spike/overflow/tired states increasingly expose peripheral pastures. `/pastures` shows the live pull and accumulated hit-count per field.
 
 ## shimmer — Stanley dreams alone
 
@@ -297,7 +297,7 @@ A few things worth noticing in this raw run:
 - [x] **Phase 1** (2.0): weightless core, REPL, cooccur + chambers + rings + subjectivity + dream
 - [x] **Phase 2** (2.1, this release): **vocab_graze** (mmap any GGUF, vocab-only — port of [doe.c](https://github.com/ariannamethod/doe) GGUF parser) + **shimmer** (Stanley dreams in silence after idle) + **adaptive maturity** (speak/silence ratio drifts the coherence_floor — Stanley grows quieter as he matures) + **refused shards** (silence becomes a teacher: clusters of refused pulses promote into identity gravity)
 - [ ] **Phase 3**: native pthread async side — already partially landed (shimmer). Next: DOE-spore persistence of crystallized shards across runs; SentencePiece `tokenizer.model` parser as a second graze backend
-- [ ] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel, choose vocab per topic via chamber resonance
+- [~] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel. First slice landed: multiple lexical pastures with chamber-driven pull. Next: topic-aware / memory-aware routing instead of body-only routing.
 
 ## license
 

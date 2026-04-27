@@ -158,6 +158,7 @@ typedef struct {
     /* optional GGUF vocab pastures (may all be NULL) */
     struct st_graze *grazes[STANLEY_MAX_GRAZES];
     char            *graze_labels[STANLEY_MAX_GRAZES];
+    int64_t          graze_hits[STANLEY_MAX_GRAZES];
     int              n_grazes;
 
     /* shimmer thread state */

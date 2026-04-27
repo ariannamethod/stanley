@@ -507,17 +507,78 @@ static int graze_total_vocab(const Stanley *s) {
     return total;
 }
 
-static const char *graze_pick_word(const Stanley *s) {
-    if (!s || s->n_grazes <= 0) return NULL;
-    int start = 0;
-    if (s->n_grazes > 1 && st_randu() >= STANLEY_PRIMARY_GRAZE_BIAS) {
-        start = 1 + (int)(st_randu() * (float)(s->n_grazes - 1));
-        if (start >= s->n_grazes) start = s->n_grazes - 1;
+static float graze_pasture_pull(const Stanley *s, int idx) {
+    if (!s || idx < 0 || idx >= s->n_grazes || !s->grazes[idx]) return 0.0f;
+    float calm  = s->body.act[0];
+    float spike = s->body.act[1];
+    float over  = s->body.act[2];
+    float tired = s->body.act[3];
+
+    float pull = 0.0f;
+    switch (idx % 4) {
+        case 0:
+            pull = 0.25f
+                 + STANLEY_PRIMARY_GRAZE_BIAS
+                 + 0.55f * calm
+                 + 0.20f * (1.0f - over)
+                 + 0.10f * tired;
+            break;
+        case 1:
+            pull = 0.20f
+                 + 0.60f * spike
+                 + 0.25f * over
+                 + 0.10f * calm;
+            break;
+        case 2:
+            pull = 0.18f
+                 + 0.65f * over
+                 + 0.35f * tired
+                 + 0.10f * spike;
+            break;
+        default:
+            pull = 0.16f
+                 + 0.35f * tired
+                 + 0.30f * calm
+                 + 0.20f * spike
+                 + 0.10f * over;
+            break;
     }
+    return st_clamp(pull, 0.05f, 2.50f);
+}
+
+static int graze_pick_pasture(const Stanley *s) {
+    if (!s || s->n_grazes <= 0) return -1;
+    float total = 0.0f;
+    float pulls[STANLEY_MAX_GRAZES] = {0};
+    for (int i = 0; i < s->n_grazes; i++) {
+        pulls[i] = graze_pasture_pull(s, i);
+        total += pulls[i];
+    }
+    if (total <= 0.0f) return 0;
+
+    float target = st_randu() * total;
+    float acc = 0.0f;
+    for (int i = 0; i < s->n_grazes; i++) {
+        acc += pulls[i];
+        if (target <= acc) return i;
+    }
+    return s->n_grazes - 1;
+}
+
+static const char *graze_pick_word(Stanley *s, int *pasture_idx) {
+    if (pasture_idx) *pasture_idx = -1;
+    if (!s || s->n_grazes <= 0) return NULL;
+
+    int start = graze_pick_pasture(s);
+    if (start < 0) return NULL;
+
     for (int off = 0; off < s->n_grazes; off++) {
         int idx = (start + off) % s->n_grazes;
         const char *w = graze_random_word(s->grazes[idx]);
-        if (w && *w) return w;
+        if (w && *w) {
+            if (pasture_idx) *pasture_idx = idx;
+            return w;
+        }
     }
     return NULL;
 }
@@ -553,12 +614,16 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
      * the ring tail. Stanley is still speaking from his ring — the foreign
      * token enters as resonance margin, not as a substitute thought. */
     if (graze_hungry(s) && st_randu() < 0.25f) {
-        const char *foreign = graze_pick_word(s);
+        int pasture_idx = -1;
+        const char *foreign = graze_pick_word(s, &pasture_idx);
         if (foreign && *foreign) {
             size_t base_n = strlen(txt);
             size_t for_n  = strlen(foreign);
             char  *spliced = malloc(base_n + for_n + 2);
             if (spliced) {
+                if (pasture_idx >= 0 && pasture_idx < STANLEY_MAX_GRAZES) {
+                    s->graze_hits[pasture_idx]++;
+                }
                 memcpy(spliced, txt, base_n);
                 spliced[base_n] = ' ';
                 memcpy(spliced + base_n + 1, foreign, for_n);
@@ -940,11 +1005,13 @@ void stanley_repl(Stanley *s) {
         if (!strcmp(line, "/pastures")) {
             printf("  pastures=%d\n", s->n_grazes);
             for (int i = 0; i < s->n_grazes; i++) {
-                printf("  %c pasture[%d]: %s (vocab=%d)\n",
+                printf("  %c pasture[%d]: %s (vocab=%d pull=%.2f hits=%lld)\n",
                        i == 0 ? '*' : '-',
                        i,
                        s->graze_labels[i] ? s->graze_labels[i] : "(unknown)",
-                       graze_vocab_size(s->grazes[i]));
+                       graze_vocab_size(s->grazes[i]),
+                       graze_pasture_pull(s, i),
+                       (long long)s->graze_hits[i]);
             }
             continue;
         }
@@ -974,6 +1041,7 @@ int stanley_graze_attach(Stanley *s, const char *gguf_path) {
         label = st_strdup_local(gguf_path);
         s->grazes[s->n_grazes] = g;
         s->graze_labels[s->n_grazes] = label;
+        s->graze_hits[s->n_grazes] = 0;
         s->n_grazes++;
     }
     int ok = (g != NULL);
@@ -993,6 +1061,7 @@ void stanley_graze_detach(Stanley *s) {
             free(s->graze_labels[i]);
             s->graze_labels[i] = NULL;
         }
+        s->graze_hits[i] = 0;
     }
     s->n_grazes = 0;
     pthread_mutex_unlock(&s->mtx);
