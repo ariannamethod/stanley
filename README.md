@@ -22,6 +22,7 @@ make
 ./stanley --no-origin                           # start silent, grow from conversation alone
 ./stanley --graze weights/nano89-base-q4.gguf   # opt-in lexical pasture (bundled — see below)
 ./stanley --graze weights/nano89-base-q4.gguf --graze /path/to/janus.gguf
+./stanley --graze weights/nano89-base-q4.gguf --graze-profile origin.txt
 ./stanley --shimmer                             # idle dream thread on
 ```
 
@@ -130,6 +131,8 @@ emit(rings):
 
 Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own. Repeating `--graze` appends another pasture; Stanley samples a foreign word from one of the attached lexical fields instead of replacing the first one. The first attached pasture remains the primary lexical field, but later pastures are no longer just dead satellites: chamber state pulls on them differently. Calm/thin states favor the primary field; spike/overflow/tired states increasingly expose peripheral pastures. `/pastures` shows the live pull and accumulated hit-count per field.
 
+`--graze-profile PATH.txt` adds a **lexical tuning lane** to the most recently attached pasture. Stanley scans the text, harvests a weighted word profile, and then preferentially grazes from that profile instead of choosing a raw random vocab token every time. This is the lightweight compromise between "stay weightless" and "do a whole new fine-tune": the body stays Stanley's, the pasture stays external, but a rewritten text can still bend what kind of foreign words arrive.
+
 ## shimmer — Stanley dreams alone
 
 A pthread loop wakes every 5 s and checks two things: is the last user input older than 60 s, and are the chambers calm (`calm > 0.5`, `over < 0.4`). If yes, Stanley runs **one synthetic pass**: pulse derived from body state instead of input, one deep ring, maybe crystallize. No reply is emitted. No one is in the room. Stanley dreams alone.
@@ -172,9 +175,10 @@ stanley.c      — organism core (~1000 LOC):
                   • adaptive maturity (rolling speak/silence ratio drifts coherence_floor toward zrelost)
                   • shimmer thread (idle > 60s → internal dream pass, no input needed)
                   • vocab_graze hook (foreign GGUF word spliced when chambers hungry)
+                  • graze-profile hook (plain-text lexical bias applied to the last pasture)
 graze.h/.c     — minimal GGUF metadata-only vocab harvester (~190 LOC). mmap, parse header KV,
                  pull tokenizer.ggml.tokens. tensor regions never paged in.
-main.c         — thin CLI: /stats /pastures /dream /shimmer /quit, --origin --no-origin --graze --shimmer
+main.c         — thin CLI: /stats /pastures /dream /shimmer /quit, --origin --no-origin --graze --graze-profile --shimmer
 origin.txt     — Stanley's Act 1–4 origin text, preserved from 1.0
 weights/       — bundled GGUF pasture: nano89-base-q4.gguf (57 MB)
 tests/         — 6 suites, one per architectural concern:

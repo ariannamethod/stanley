@@ -507,6 +507,15 @@ static int graze_total_vocab(const Stanley *s) {
     return total;
 }
 
+static int graze_profiled_pastures(const Stanley *s) {
+    int n = 0;
+    if (!s) return 0;
+    for (int i = 0; i < s->n_grazes; i++) {
+        if (s->grazes[i] && graze_profile_size(s->grazes[i]) > 0) n++;
+    }
+    return n;
+}
+
 static float graze_pasture_pull(const Stanley *s, int idx) {
     if (!s || idx < 0 || idx >= s->n_grazes || !s->grazes[idx]) return 0.0f;
     float calm  = s->body.act[0];
@@ -998,6 +1007,7 @@ void stanley_repl(Stanley *s) {
                    s->body.act[0], s->body.act[1], s->body.act[2], s->body.act[3], s->body.overload);
             printf("  identity: fragments=%d gravity=%d  sea=%d  pastures=%d  graze_vocab=%d\n",
                    s->me.n_fragments, s->me.n_gravity, s->sea.n, s->n_grazes, graze_v);
+            printf("  grazing: profiled=%d\n", graze_profiled_pastures(s));
             printf("  maturity: speak_ratio=%.2f  coherence_floor=%.3f (baseline %.3f)\n",
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
             continue;
@@ -1005,13 +1015,17 @@ void stanley_repl(Stanley *s) {
         if (!strcmp(line, "/pastures")) {
             printf("  pastures=%d\n", s->n_grazes);
             for (int i = 0; i < s->n_grazes; i++) {
-                printf("  %c pasture[%d]: %s (vocab=%d pull=%.2f hits=%lld)\n",
+                printf("  %c pasture[%d]: %s (vocab=%d profile=%d pull=%.2f hits=%lld)\n",
                        i == 0 ? '*' : '-',
                        i,
                        s->graze_labels[i] ? s->graze_labels[i] : "(unknown)",
                        graze_vocab_size(s->grazes[i]),
+                       graze_profile_size(s->grazes[i]),
                        graze_pasture_pull(s, i),
                        (long long)s->graze_hits[i]);
+                if (s->graze_profile_labels[i]) {
+                    printf("    profile: %s\n", s->graze_profile_labels[i]);
+                }
             }
             continue;
         }
@@ -1049,6 +1063,24 @@ int stanley_graze_attach(Stanley *s, const char *gguf_path) {
     return ok ? 0 : -1;
 }
 
+int stanley_graze_profile_attach(Stanley *s, const char *text_path) {
+    if (!s || !text_path) return -1;
+    pthread_mutex_lock(&s->mtx);
+    if (s->n_grazes <= 0 || !s->grazes[s->n_grazes - 1]) {
+        pthread_mutex_unlock(&s->mtx);
+        return -1;
+    }
+    int idx = s->n_grazes - 1;
+    int rc = graze_profile_load(s->grazes[idx], text_path);
+    if (rc == 0) {
+        char *label = st_strdup_local(text_path);
+        if (s->graze_profile_labels[idx]) free(s->graze_profile_labels[idx]);
+        s->graze_profile_labels[idx] = label;
+    }
+    pthread_mutex_unlock(&s->mtx);
+    return rc;
+}
+
 void stanley_graze_detach(Stanley *s) {
     if (!s) return;
     pthread_mutex_lock(&s->mtx);
@@ -1060,6 +1092,10 @@ void stanley_graze_detach(Stanley *s) {
         if (s->graze_labels[i]) {
             free(s->graze_labels[i]);
             s->graze_labels[i] = NULL;
+        }
+        if (s->graze_profile_labels[i]) {
+            free(s->graze_profile_labels[i]);
+            s->graze_profile_labels[i] = NULL;
         }
         s->graze_hits[i] = 0;
     }

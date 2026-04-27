@@ -41,6 +41,15 @@ const char *graze_token(const st_graze *g, int idx);
  * tries. Caller must NOT free. */
 const char *graze_random_word(const st_graze *g);
 
+/* Optional lexical tuning profile from a plain text file.
+ * The profile does not touch tensors; it only harvests weighted words from
+ * the text so Stanley can preferentially graze them from this pasture.
+ * Returns 0 on success, nonzero on failure. Replaces any previous profile. */
+int graze_profile_load(st_graze *g, const char *text_path);
+
+/* Number of unique words loaded into the optional lexical profile. */
+int graze_profile_size(const st_graze *g);
+
 #ifdef __cplusplus
 }
 #endif

@@ -9,6 +9,7 @@
  */
 #include "graze.h"
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,7 +26,13 @@ struct st_graze {
     size_t   mmap_size;
     char   **tokens;
     int      n_tokens;
+    char   **profile_words;
+    int     *profile_counts;
+    int      n_profile;
+    int      profile_total;
 };
+
+#define GRAZE_MAX_PROFILE_WORDS 4096
 
 /* GGUF type sizes for non-string scalars (used to skip values we ignore). */
 static size_t gguf_scalar_size(uint32_t vtype) {
@@ -132,6 +139,11 @@ bail:
 
 void graze_close(st_graze *g) {
     if (!g) return;
+    if (g->profile_words) {
+        for (int i = 0; i < g->n_profile; i++) free(g->profile_words[i]);
+        free(g->profile_words);
+    }
+    free(g->profile_counts);
     if (g->tokens) {
         for (int i = 0; i < g->n_tokens; i++) free(g->tokens[i]);
         free(g->tokens);
@@ -178,8 +190,108 @@ static int looks_like_word(const char *raw) {
     return has_alpha;
 }
 
+static void graze_profile_clear(st_graze *g) {
+    if (!g) return;
+    if (g->profile_words) {
+        for (int i = 0; i < g->n_profile; i++) free(g->profile_words[i]);
+        free(g->profile_words);
+    }
+    free(g->profile_counts);
+    g->profile_words = NULL;
+    g->profile_counts = NULL;
+    g->n_profile = 0;
+    g->profile_total = 0;
+}
+
+static int profile_insert_word(st_graze *g, const char *word) {
+    if (!g || !word || !*word) return -1;
+    for (int i = 0; i < g->n_profile; i++) {
+        if (strcmp(g->profile_words[i], word) == 0) {
+            g->profile_counts[i]++;
+            g->profile_total++;
+            return 0;
+        }
+    }
+    if (g->n_profile >= GRAZE_MAX_PROFILE_WORDS) return 0;
+    char **new_words = realloc(g->profile_words, (size_t)(g->n_profile + 1) * sizeof(char *));
+    if (!new_words) return -1;
+    int  *new_counts = realloc(g->profile_counts, (size_t)(g->n_profile + 1) * sizeof(int));
+    if (!new_counts) {
+        g->profile_words = new_words;
+        return -1;
+    }
+    g->profile_words = new_words;
+    g->profile_counts = new_counts;
+    g->profile_words[g->n_profile] = strdup(word);
+    if (!g->profile_words[g->n_profile]) return -1;
+    g->profile_counts[g->n_profile] = 1;
+    g->n_profile++;
+    g->profile_total++;
+    return 0;
+}
+
+int graze_profile_load(st_graze *g, const char *text_path) {
+    if (!g || !text_path) return -1;
+    FILE *f = fopen(text_path, "rb");
+    if (!f) return -1;
+
+    graze_profile_clear(g);
+
+    char buf[128];
+    int n = 0;
+    int ch;
+    while ((ch = fgetc(f)) != EOF) {
+        unsigned char c = (unsigned char)ch;
+        if (isalpha(c) || (c == '\'' && n > 0)) {
+            if (n < (int)sizeof(buf) - 1) {
+                buf[n++] = (char)tolower(c);
+            }
+        } else if (n > 1) {
+            buf[n] = 0;
+            if (profile_insert_word(g, buf) != 0) {
+                fclose(f);
+                graze_profile_clear(g);
+                return -1;
+            }
+            n = 0;
+        } else {
+            n = 0;
+        }
+    }
+    if (n > 1) {
+        buf[n] = 0;
+        if (profile_insert_word(g, buf) != 0) {
+            fclose(f);
+            graze_profile_clear(g);
+            return -1;
+        }
+    }
+
+    fclose(f);
+    return g->n_profile > 0 ? 0 : -1;
+}
+
+int graze_profile_size(const st_graze *g) {
+    return g ? g->n_profile : 0;
+}
+
+static const char *graze_random_profile_word(const st_graze *g) {
+    if (!g || g->n_profile <= 0 || g->profile_total <= 0) return NULL;
+    int target = rand() % g->profile_total;
+    int acc = 0;
+    for (int i = 0; i < g->n_profile; i++) {
+        acc += g->profile_counts[i];
+        if (target < acc) return g->profile_words[i];
+    }
+    return g->profile_words[g->n_profile - 1];
+}
+
 const char *graze_random_word(const st_graze *g) {
     if (!g || g->n_tokens == 0 || !g->tokens) return NULL;
+    if (g->n_profile > 0 && (rand() % 100) < 75) {
+        const char *pw = graze_random_profile_word(g);
+        if (pw && *pw) return pw;
+    }
     for (int attempt = 0; attempt < 32; attempt++) {
         int idx = rand() % g->n_tokens;
         const char *t = g->tokens[idx];

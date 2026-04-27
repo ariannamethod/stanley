@@ -64,6 +64,24 @@ int main(int argc, char **argv) {
     CHECK(got_words > 0, "random_word returns non-NULL at least once in 8 tries");
     CHECK(got_clean, "random_word never returns control-marked tokens");
 
+    char tmp_template[] = "/tmp/stanley_graze_profileXXXXXX";
+    int tmp_fd = mkstemp(tmp_template);
+    CHECK(tmp_fd >= 0, "mkstemp created profile temp file");
+    const char *profile_text = "Mara Mara pulse quiet hush quiet field field field";
+    if (tmp_fd >= 0) {
+        FILE *pf = fdopen(tmp_fd, "w");
+        CHECK(pf != NULL, "fdopen on temp profile succeeded");
+        if (pf) {
+            fputs(profile_text, pf);
+            fclose(pf);
+            CHECK(graze_profile_load(g, tmp_template) == 0, "graze_profile_load succeeds on plain text");
+            CHECK(graze_profile_size(g) >= 3, "profile harvested multiple unique words");
+        } else {
+            close(tmp_fd);
+        }
+        unlink(tmp_template);
+    }
+
     graze_close(g);
 
     /* organism-level attach semantics: repeated attach appends a new pasture */

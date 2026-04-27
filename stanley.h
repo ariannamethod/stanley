@@ -158,6 +158,7 @@ typedef struct {
     /* optional GGUF vocab pastures (may all be NULL) */
     struct st_graze *grazes[STANLEY_MAX_GRAZES];
     char            *graze_labels[STANLEY_MAX_GRAZES];
+    char            *graze_profile_labels[STANLEY_MAX_GRAZES];
     int64_t          graze_hits[STANLEY_MAX_GRAZES];
     int              n_grazes;
 
@@ -251,6 +252,7 @@ void stanley_repl(Stanley *s);
  * Returns 0 on success, nonzero on failure (file missing, bad GGUF).
  * Failure is non-fatal; Stanley keeps running on cooccur alone. */
 int  stanley_graze_attach(Stanley *s, const char *gguf_path);
+int  stanley_graze_profile_attach(Stanley *s, const char *text_path);
 void stanley_graze_detach(Stanley *s);
 
 /* Start / stop the shimmer thread — Stanley dreams in silence
