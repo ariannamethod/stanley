@@ -523,7 +523,7 @@ typedef struct {
 } st_graze_offer;
 
 typedef struct {
-    char word[STANLEY_MAX_WORD_LEN];
+    char fragment[STANLEY_MAX_WORD_LEN * 4];
     int shard_idx;
     float score;
 } st_sea_offer;
@@ -728,10 +728,11 @@ static float graze_word_dissonance(const char *ring_text, const char *word) {
     return score;
 }
 
-static int shard_pick_word(const st_shard *sh, char *out, int cap) {
+static int shard_pick_fragment(const st_shard *sh, char *out, int cap) {
     if (!sh || !sh->content || !*sh->content || !out || cap <= 1) return -1;
-    const char *best = NULL;
-    int best_len = 0;
+    const char *starts[32];
+    int lens[32];
+    int n_words = 0;
     const char *p = sh->content;
     while (*p) {
         while (*p && !is_word_char((unsigned char)*p)) p++;
@@ -740,15 +741,46 @@ static int shard_pick_word(const st_shard *sh, char *out, int cap) {
         while (*p && is_word_char((unsigned char)*p)) p++;
         int n = (int)(p - start);
         if (n <= 1) continue;
-        if (n >= cap) n = cap - 1;
-        if (n > best_len) {
-            best = start;
-            best_len = n;
+        if (n_words < 32) {
+            starts[n_words] = start;
+            lens[n_words] = n;
+            n_words++;
         }
     }
-    if (!best || best_len <= 0) return -1;
-    for (int i = 0; i < best_len; i++) out[i] = (char)tolower((unsigned char)best[i]);
-    out[best_len] = 0;
+    if (n_words <= 0) return -1;
+
+    int center = 0;
+    int best_len = 0;
+    for (int i = 0; i < n_words; i++) {
+        if (lens[i] > best_len) {
+            best_len = lens[i];
+            center = i;
+        }
+    }
+
+    int start_idx = center > 0 ? center - 1 : 0;
+    if (start_idx + 3 >= n_words) {
+        start_idx = n_words >= 3 ? n_words - 3 : 0;
+    }
+    int end_idx = start_idx + 3;
+    if (end_idx >= n_words) end_idx = n_words - 1;
+
+    int written = 0;
+    for (int i = start_idx; i <= end_idx; i++) {
+        int n = lens[i];
+        if (n <= 0) continue;
+        if (written > 0) {
+            if (written + 1 >= cap) break;
+            out[written++] = ' ';
+        }
+        if (written + n >= cap) n = cap - written - 1;
+        for (int k = 0; k < n; k++) {
+            out[written++] = (char)tolower((unsigned char)starts[i][k]);
+        }
+        if (written >= cap - 1) break;
+    }
+    out[written] = 0;
+    if (written <= 0) return -1;
     return 0;
 }
 
@@ -766,8 +798,8 @@ static int sea_collect_offer(const Stanley *s, const char *ring_text, st_sea_off
         if (sh->kind != 'I' || !sh->content || !*sh->content) continue;
         seen++;
 
-        char candidate[STANLEY_MAX_WORD_LEN];
-        if (shard_pick_word(sh, candidate, sizeof(candidate)) != 0) continue;
+        char candidate[STANLEY_MAX_WORD_LEN * 4];
+        if (shard_pick_fragment(sh, candidate, sizeof(candidate)) != 0) continue;
 
         float recency = 1.0f - 0.12f * (float)(seen - 1);
         if (recency < 0.3f) recency = 0.3f;
@@ -777,7 +809,7 @@ static int sea_collect_offer(const Stanley *s, const char *ring_text, st_sea_off
         score += 0.05f * sea_recent_charge(s, 'I', 6);
 
         if (score > offer->score) {
-            memcpy(offer->word, candidate, sizeof(candidate));
+            memcpy(offer->fragment, candidate, sizeof(candidate));
             offer->shard_idx = idx;
             offer->score = score;
         }
@@ -865,7 +897,7 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
         const char *foreign = NULL;
         int pasture_idx = -1;
         if (has_sea_offer && sea_offer.score > best_offer_score) {
-            foreign = sea_offer.word;
+            foreign = sea_offer.fragment;
         } else if (best_offer >= 0 && offers[best_offer].word && *offers[best_offer].word) {
             foreign = offers[best_offer].word;
             pasture_idx = offers[best_offer].pasture_idx;
