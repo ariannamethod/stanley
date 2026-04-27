@@ -122,7 +122,12 @@ emit(rings):
     pick best ring by (resonance + meta_patterns)
     if best is below silence threshold → return NULL  (refuse)
     if hungry() and rand() < 0.25:
-        foreign = graze_random_word()        # skip <s>, [INST], byte-fallback
+        candidates = [
+            graze(calm-angle),
+            graze(wound-angle),
+            graze(contradiction-angle),
+        ]
+        foreign = argmax(dissonance_score(candidates))
         return ring.text + " " + foreign     # splice on the tail, never the seed
     return ring.text
 ```
@@ -132,6 +137,8 @@ emit(rings):
 Bundled `weights/nano89-base-q4.gguf` (57 MB, SentencePiece BPE 32K) is one example pasture. Any GGUF with a tokenizer works — Janus, NanoLlama, Gemma, Qwen, your own. Repeating `--graze` appends another pasture; Stanley samples a foreign word from one of the attached lexical fields instead of replacing the first one. The first attached pasture remains the primary lexical field, but later pastures are no longer just dead satellites: chamber state pulls on them differently. Calm/thin states favor the primary field; spike/overflow/tired states increasingly expose peripheral pastures. `/pastures` shows the live pull and accumulated hit-count per field.
 
 `--graze-profile PATH.txt` adds a **lexical tuning lane** to the most recently attached pasture. Stanley scans the text, harvests a weighted word profile, and then preferentially grazes from that profile instead of choosing a raw random vocab token every time. This is the lightweight compromise between "stay weightless" and "do a whole new fine-tune": the body stays Stanley's, the pasture stays external, but a rewritten text can still bend what kind of foreign words arrive.
+
+In 2.1+, grazing is no longer a single random theft. Stanley now queries attached pastures from **multiple bodily angles** — calm, wound, contradiction — and lets those candidates compete by chamber pull and lexical dissonance against the ring he was already about to speak. The pasture does not get to replace thought; it has to win a fight at the tail of thought.
 
 ## shimmer — Stanley dreams alone
 
@@ -301,7 +308,7 @@ A few things worth noticing in this raw run:
 - [x] **Phase 1** (2.0): weightless core, REPL, cooccur + chambers + rings + subjectivity + dream
 - [x] **Phase 2** (2.1, this release): **vocab_graze** (mmap any GGUF, vocab-only — port of [doe.c](https://github.com/ariannamethod/doe) GGUF parser) + **shimmer** (Stanley dreams in silence after idle) + **adaptive maturity** (speak/silence ratio drifts the coherence_floor — Stanley grows quieter as he matures) + **refused shards** (silence becomes a teacher: clusters of refused pulses promote into identity gravity)
 - [ ] **Phase 3**: native pthread async side — already partially landed (shimmer). Next: DOE-spore persistence of crystallized shards across runs; SentencePiece `tokenizer.model` parser as a second graze backend
-- [~] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel. First slice landed: multiple lexical pastures with chamber-driven pull. Next: topic-aware / memory-aware routing instead of body-only routing.
+- [~] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel. First slices landed: multiple lexical pastures, chamber-driven pull, lexical profiles, and multi-angle dissonant grazing. Next: topic-aware / memory-aware routing instead of body-only routing.
 
 ## license
 

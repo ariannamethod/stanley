@@ -516,7 +516,13 @@ static int graze_profiled_pastures(const Stanley *s) {
     return n;
 }
 
-static float graze_pasture_pull(const Stanley *s, int idx) {
+typedef struct {
+    const char *word;
+    int pasture_idx;
+    float score;
+} st_graze_offer;
+
+static float graze_pasture_pull(const Stanley *s, int idx, int angle_idx) {
     if (!s || idx < 0 || idx >= s->n_grazes || !s->grazes[idx]) return 0.0f;
     float calm  = s->body.act[0];
     float spike = s->body.act[1];
@@ -524,43 +530,95 @@ static float graze_pasture_pull(const Stanley *s, int idx) {
     float tired = s->body.act[3];
 
     float pull = 0.0f;
-    switch (idx % 4) {
-        case 0:
-            pull = 0.25f
-                 + STANLEY_PRIMARY_GRAZE_BIAS
-                 + 0.55f * calm
-                 + 0.20f * (1.0f - over)
-                 + 0.10f * tired;
+    switch (angle_idx) {
+        case 0: /* calm-angle: keep the main field dominant */
+            switch (idx % 4) {
+                case 0:
+                    pull = 0.25f
+                         + STANLEY_PRIMARY_GRAZE_BIAS
+                         + 0.55f * calm
+                         + 0.20f * (1.0f - over)
+                         + 0.10f * tired;
+                    break;
+                case 1:
+                    pull = 0.18f
+                         + 0.35f * spike
+                         + 0.15f * over
+                         + 0.15f * calm;
+                    break;
+                case 2:
+                    pull = 0.12f
+                         + 0.30f * over
+                         + 0.15f * tired;
+                    break;
+                default:
+                    pull = 0.12f
+                         + 0.20f * calm
+                         + 0.15f * tired;
+                    break;
+            }
             break;
-        case 1:
-            pull = 0.20f
-                 + 0.60f * spike
-                 + 0.25f * over
-                 + 0.10f * calm;
+        case 1: /* wound-angle: old hurt and fatigue bias toward peripheral fields */
+            switch (idx % 4) {
+                case 0:
+                    pull = 0.10f
+                         + 0.20f * calm
+                         + 0.15f * tired;
+                    break;
+                case 1:
+                    pull = 0.22f
+                         + 0.35f * spike
+                         + 0.45f * over
+                         + 0.10f * tired;
+                    break;
+                case 2:
+                    pull = 0.28f
+                         + 0.65f * over
+                         + 0.45f * tired
+                         + 0.10f * spike;
+                    break;
+                default:
+                    pull = 0.18f
+                         + 0.30f * tired
+                         + 0.20f * over;
+                    break;
+            }
             break;
-        case 2:
-            pull = 0.18f
-                 + 0.65f * over
-                 + 0.35f * tired
-                 + 0.10f * spike;
-            break;
-        default:
-            pull = 0.16f
-                 + 0.35f * tired
-                 + 0.30f * calm
-                 + 0.20f * spike
-                 + 0.10f * over;
+        default: /* contradiction-angle: reward non-primary friction and tension */
+            switch (idx % 4) {
+                case 0:
+                    pull = 0.14f
+                         + 0.20f * calm
+                         + 0.20f * spike;
+                    break;
+                case 1:
+                    pull = 0.25f
+                         + 0.50f * spike
+                         + 0.20f * calm;
+                    break;
+                case 2:
+                    pull = 0.24f
+                         + 0.40f * over
+                         + 0.20f * spike;
+                    break;
+                default:
+                    pull = 0.22f
+                         + 0.25f * tired
+                         + 0.25f * spike
+                         + 0.15f * over;
+                    break;
+            }
             break;
     }
     return st_clamp(pull, 0.05f, 2.50f);
 }
 
-static int graze_pick_pasture(const Stanley *s) {
+static int graze_pick_pasture(const Stanley *s, int angle_idx) {
     if (!s || s->n_grazes <= 0) return -1;
     float total = 0.0f;
     float pulls[STANLEY_MAX_GRAZES] = {0};
     for (int i = 0; i < s->n_grazes; i++) {
-        pulls[i] = graze_pasture_pull(s, i);
+        pulls[i] = graze_pasture_pull(s, i, angle_idx);
         total += pulls[i];
     }
     if (total <= 0.0f) return 0;
@@ -574,22 +632,52 @@ static int graze_pick_pasture(const Stanley *s) {
     return s->n_grazes - 1;
 }
 
-static const char *graze_pick_word(Stanley *s, int *pasture_idx) {
-    if (pasture_idx) *pasture_idx = -1;
-    if (!s || s->n_grazes <= 0) return NULL;
+static float graze_word_dissonance(const char *ring_text, const char *word) {
+    if (!ring_text || !word || !*word) return 0.0f;
+    float score = 0.0f;
+    if (!strstr(ring_text, word)) score += 0.35f;
+    size_t wl = strlen(word);
+    if (wl >= 5) score += 0.10f;
+    if (wl >= 8) score += 0.10f;
+    char last[STANLEY_MAX_WORD_LEN] = {0};
+    const char *tail = strrchr(ring_text, ' ');
+    tail = tail ? tail + 1 : ring_text;
+    size_t tl = strlen(tail);
+    if (tl > 0) {
+        size_t copy_n = tl < sizeof(last) - 1 ? tl : sizeof(last) - 1;
+        memcpy(last, tail, copy_n);
+        last[copy_n] = 0;
+        if (strcmp(last, word) != 0) score += 0.15f;
+        if (tolower((unsigned char)last[0]) != tolower((unsigned char)word[0])) score += 0.10f;
+    }
+    return score;
+}
 
-    int start = graze_pick_pasture(s);
-    if (start < 0) return NULL;
+static int graze_collect_offer(Stanley *s, const char *ring_text, int angle_idx, st_graze_offer *offer) {
+    if (!offer) return -1;
+    memset(offer, 0, sizeof(*offer));
+    offer->pasture_idx = -1;
+    offer->score = -1e30f;
+    if (!s || s->n_grazes <= 0) return -1;
+
+    int start = graze_pick_pasture(s, angle_idx);
+    if (start < 0) return -1;
 
     for (int off = 0; off < s->n_grazes; off++) {
         int idx = (start + off) % s->n_grazes;
         const char *w = graze_random_word(s->grazes[idx]);
         if (w && *w) {
-            if (pasture_idx) *pasture_idx = idx;
-            return w;
+            float score = graze_pasture_pull(s, idx, angle_idx);
+            score += graze_word_dissonance(ring_text, w);
+            if (graze_profile_size(s->grazes[idx]) > 0) score += 0.15f;
+            if (angle_idx == 2 && idx > 0) score += 0.10f;
+            offer->word = w;
+            offer->pasture_idx = idx;
+            offer->score = score;
+            return 0;
         }
     }
-    return NULL;
+    return -1;
 }
 
 static int graze_hungry(const Stanley *s) {
@@ -623,9 +711,24 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
      * the ring tail. Stanley is still speaking from his ring — the foreign
      * token enters as resonance margin, not as a substitute thought. */
     if (graze_hungry(s) && st_randu() < 0.25f) {
-        int pasture_idx = -1;
-        const char *foreign = graze_pick_word(s, &pasture_idx);
-        if (foreign && *foreign) {
+        st_graze_offer offers[3];
+        int n_offers = 0;
+        for (int angle = 0; angle < 3; angle++) {
+            if (graze_collect_offer(s, txt, angle, &offers[n_offers]) == 0) {
+                n_offers++;
+            }
+        }
+        int best_offer = -1;
+        float best_offer_score = -1e30f;
+        for (int i = 0; i < n_offers; i++) {
+            if (offers[i].score > best_offer_score) {
+                best_offer_score = offers[i].score;
+                best_offer = i;
+            }
+        }
+        if (best_offer >= 0 && offers[best_offer].word && *offers[best_offer].word) {
+            const char *foreign = offers[best_offer].word;
+            int pasture_idx = offers[best_offer].pasture_idx;
             size_t base_n = strlen(txt);
             size_t for_n  = strlen(foreign);
             char  *spliced = malloc(base_n + for_n + 2);
@@ -1021,7 +1124,7 @@ void stanley_repl(Stanley *s) {
                        s->graze_labels[i] ? s->graze_labels[i] : "(unknown)",
                        graze_vocab_size(s->grazes[i]),
                        graze_profile_size(s->grazes[i]),
-                       graze_pasture_pull(s, i),
+                       graze_pasture_pull(s, i, 0),
                        (long long)s->graze_hits[i]);
                 if (s->graze_profile_labels[i]) {
                     printf("    profile: %s\n", s->graze_profile_labels[i]);
