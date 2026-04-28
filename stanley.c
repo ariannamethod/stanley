@@ -371,6 +371,20 @@ static const struct { const char *name; float T; int len; } RING_CFG[STANLEY_MAX
     {"void",  1.5f, 10},
 };
 
+static int is_glue_word(const char *w) {
+    static const char *glue[] = {
+        "a", "an", "and", "are", "as", "at", "be", "but", "by", "for",
+        "from", "i", "if", "in", "is", "it", "my", "not", "of", "on",
+        "or", "that", "the", "this", "to", "was", "when", "with", "you"
+    };
+    if (!w || !*w) return 1;
+    if (strlen(w) <= 2) return 1;
+    for (size_t i = 0; i < sizeof(glue) / sizeof(glue[0]); i++) {
+        if (strcmp(w, glue[i]) == 0) return 1;
+    }
+    return 0;
+}
+
 /* Sample next token given previous token id, with temperature T.
  * Penalizes recent self-repeats so Stanley doesn't get stuck chewing the
  * same word forever. Returns vocab index or -1 if cooccur row empty. */
@@ -382,9 +396,10 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
     float maxv = -1e30f;
     for (int j = 0; j < V; j++) {
         float penalty = 0.0f;
-        if (j == prev) penalty += 1.4f;
+        if (j == prev) penalty += 2.6f;
+        if (is_glue_word(co->word[j])) penalty += 0.55f;
         for (int k = 0; k < n_recent; k++) {
-            if (recent[k] == j) penalty += (k == n_recent - 1) ? 0.9f : 0.35f;
+            if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
         float v = row[j] / T - penalty;
         if (v > maxv) maxv = v;
@@ -393,9 +408,10 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
     float sum = 0, acc = 0;
     for (int j = 0; j < V; j++) {
         float penalty = 0.0f;
-        if (j == prev) penalty += 1.4f;
+        if (j == prev) penalty += 2.6f;
+        if (is_glue_word(co->word[j])) penalty += 0.55f;
         for (int k = 0; k < n_recent; k++) {
-            if (recent[k] == j) penalty += (k == n_recent - 1) ? 0.9f : 0.35f;
+            if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
         sum += expf(row[j] / T - penalty - maxv);
     }
@@ -403,9 +419,10 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
     float r = st_randu() * sum;
     for (int j = 0; j < V; j++) {
         float penalty = 0.0f;
-        if (j == prev) penalty += 1.4f;
+        if (j == prev) penalty += 2.6f;
+        if (is_glue_word(co->word[j])) penalty += 0.55f;
         for (int k = 0; k < n_recent; k++) {
-            if (recent[k] == j) penalty += (k == n_recent - 1) ? 0.9f : 0.35f;
+            if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
         acc += expf(row[j] / T - penalty - maxv);
         if (acc >= r) return j;
@@ -432,6 +449,8 @@ static int choose_seed_from_fragment(const Stanley *s) {
         if (n >= STANLEY_MAX_WORD_LEN) n = STANLEY_MAX_WORD_LEN - 1;
         char low[STANLEY_MAX_WORD_LEN];
         for (int i = 0; i < n; i++) low[i] = (char)tolower((unsigned char)start[i]);
+        low[n] = 0;
+        if (is_glue_word(low)) continue;
         int vi = vocab_lookup(&s->co, low, n);
         if (vi >= 0) ids[n_ids++] = vi;
     }
@@ -443,62 +462,67 @@ static int choose_seed_from_fragment(const Stanley *s) {
 
 static int fragment_fill_snippet(const Stanley *s, char *out, int cap, int min_words, int max_words) {
     if (!s || !out || cap <= 1 || s->me.n_fragments <= 0) return -1;
-    int pick = (int)(st_randu() * (float)s->me.n_fragments);
-    if (pick >= s->me.n_fragments) pick = s->me.n_fragments - 1;
-    const char *frag = s->me.fragments[pick];
-    if (!frag || !*frag) return -1;
+    int attempts = s->me.n_fragments < 32 ? s->me.n_fragments : 32;
+    for (int attempt = 0; attempt < attempts; attempt++) {
+        int pick = (int)(st_randu() * (float)s->me.n_fragments);
+        if (pick >= s->me.n_fragments) pick = s->me.n_fragments - 1;
+        const char *frag = s->me.fragments[pick];
+        if (!frag || !*frag) continue;
 
-    const char *starts[64];
-    int lens[64];
-    int n_words = 0;
-    const char *p = frag;
-    while (*p && n_words < 64) {
-        while (*p && !is_word_char((unsigned char)*p)) p++;
-        if (!*p) break;
-        const char *start = p;
-        while (*p && is_word_char((unsigned char)*p)) p++;
-        int n = (int)(p - start);
-        if (n <= 1) continue;
-        starts[n_words] = start;
-        lens[n_words] = n;
-        n_words++;
-    }
-    if (n_words < min_words) return -1;
-
-    int span = min_words;
-    if (max_words > min_words) {
-        span += (int)(st_randu() * (float)(max_words - min_words + 1));
-        if (span > max_words) span = max_words;
-    }
-    if (span > n_words) span = n_words;
-    int start_idx = 0;
-    if (n_words > span) {
-        start_idx = (int)(st_randu() * (float)(n_words - span + 1));
-        if (start_idx > n_words - span) start_idx = n_words - span;
-    }
-
-    int written = 0;
-    for (int i = 0; i < span; i++) {
-        int idx = start_idx + i;
-        int n = lens[idx];
-        if (written > 0) {
-            if (written + 1 >= cap) break;
-            out[written++] = ' ';
+        const char *starts[64];
+        int lens[64];
+        int n_words = 0;
+        const char *p = frag;
+        while (*p && n_words < 64) {
+            while (*p && !is_word_char((unsigned char)*p)) p++;
+            if (!*p) break;
+            const char *start = p;
+            while (*p && is_word_char((unsigned char)*p)) p++;
+            int n = (int)(p - start);
+            if (n <= 1) continue;
+            starts[n_words] = start;
+            lens[n_words] = n;
+            n_words++;
         }
-        if (written + n >= cap) n = cap - written - 1;
-        for (int k = 0; k < n; k++) {
-            out[written++] = (char)tolower((unsigned char)starts[idx][k]);
+        if (n_words < min_words) continue;
+
+        int span = min_words;
+        if (max_words > min_words) {
+            span += (int)(st_randu() * (float)(max_words - min_words + 1));
+            if (span > max_words) span = max_words;
         }
-        if (written >= cap - 1) break;
+        if (span > n_words) span = n_words;
+        int start_idx = 0;
+        if (n_words > span) {
+            start_idx = (int)(st_randu() * (float)(n_words - span + 1));
+            if (start_idx > n_words - span) start_idx = n_words - span;
+        }
+
+        int written = 0;
+        for (int i = 0; i < span; i++) {
+            int idx = start_idx + i;
+            int n = lens[idx];
+            if (written > 0) {
+                if (written + 1 >= cap) break;
+                out[written++] = ' ';
+            }
+            if (written + n >= cap) n = cap - written - 1;
+            for (int k = 0; k < n; k++) {
+                out[written++] = (char)tolower((unsigned char)starts[idx][k]);
+            }
+            if (written >= cap - 1) break;
+        }
+        out[written] = 0;
+        if (written > 0) return 0;
     }
-    out[written] = 0;
-    return written > 0 ? 0 : -1;
+    return -1;
 }
 
 static int ring_is_collapsed(const st_ring *r) {
     if (!r || !r->content[0]) return 0;
     int total = 0, unique = 0;
     char seen[24][STANLEY_MAX_WORD_LEN];
+    char tail[10][STANLEY_MAX_WORD_LEN];
     const char *p = r->content;
     while (*p && total < 64) {
         while (*p && !is_word_char((unsigned char)*p)) p++;
@@ -518,11 +542,26 @@ static int ring_is_collapsed(const st_ring *r) {
         if (!dup && unique < 24) {
             strcpy(seen[unique++], word);
         }
+        strcpy(tail[total % 10], word);
         total++;
     }
     if (total < 8) return 0;
     if (unique <= 3) return 1;
     if ((float)unique / (float)total < 0.35f) return 1;
+    if (total >= 10) {
+        int tail_unique = 0;
+        int tail_n = total < 10 ? total : 10;
+        for (int i = 0; i < tail_n; i++) {
+            const char *word = tail[(total - tail_n + i) % 10];
+            int dup = 0;
+            for (int j = 0; j < i; j++) {
+                const char *prev = tail[(total - tail_n + j) % 10];
+                if (strcmp(prev, word) == 0) { dup = 1; break; }
+            }
+            if (!dup) tail_unique++;
+        }
+        if (tail_unique <= 3) return 1;
+    }
     return 0;
 }
 
@@ -614,6 +653,7 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
         if (fragment_fill_snippet(s, rescued, sizeof(rescued), 5, 10) == 0) {
             strncpy(r->content, rescued, sizeof(r->content) - 1);
             r->content[sizeof(r->content) - 1] = 0;
+            r->resonance *= 0.7f;
             r->meta_patterns += 1;  /* identity rescue counts as inward structure */
         }
     }

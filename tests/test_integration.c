@@ -14,6 +14,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 static const char *prompts[] = {
     "pressure makes motion echoes flow",
@@ -32,6 +33,40 @@ static const char *prompts[] = {
     "echoes of what is not said",
     "the body knows before the mind",
 };
+
+static int dominant_word_ratio_too_high(const char *text) {
+    char words[64][STANLEY_MAX_WORD_LEN];
+    int counts[64] = {0};
+    int n_words = 0;
+    int total_words = 0;
+    int max_count = 0;
+    const char *p = text;
+    while (*p && n_words < 64) {
+        while (*p && !isalnum((unsigned char)*p) && *p != '\'') p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && (isalnum((unsigned char)*p) || *p == '\'')) p++;
+        int n = (int)(p - start);
+        if (n >= STANLEY_MAX_WORD_LEN) n = STANLEY_MAX_WORD_LEN - 1;
+        char word[STANLEY_MAX_WORD_LEN];
+        for (int i = 0; i < n; i++) word[i] = (char)tolower((unsigned char)start[i]);
+        word[n] = 0;
+
+        int idx = -1;
+        for (int i = 0; i < n_words; i++) {
+            if (strcmp(words[i], word) == 0) { idx = i; break; }
+        }
+        if (idx < 0) {
+            idx = n_words++;
+            strcpy(words[idx], word);
+        }
+        counts[idx]++;
+        total_words++;
+        if (counts[idx] > max_count) max_count = counts[idx];
+    }
+    if (total_words < 8) return 0;
+    return (float)max_count / (float)total_words > 0.70f;
+}
 
 int main(void) {
     Stanley s;
@@ -69,5 +104,23 @@ int main(void) {
     CHECK(s.co.n_vocab == vocab_before, "failed attach does not corrupt cooccur");
 
     stanley_free(&s);
+
+    Stanley seeded;
+    stanley_init(&seeded, "origin.txt");
+    int checked_replies = 0;
+    int collapsed_replies = 0;
+    for (int turn = 0; turn < 8; turn++) {
+        const char *q = prompts[(turn + 5) % (int)(sizeof(prompts)/sizeof(prompts[0]))];
+        char *r = stanley_tick(&seeded, q);
+        if (r) {
+            checked_replies++;
+            if (dominant_word_ratio_too_high(r)) collapsed_replies++;
+            free(r);
+        }
+    }
+    CHECK(checked_replies > 0, "origin-backed Stanley speaks during collapse regression");
+    CHECK(collapsed_replies == 0, "origin-backed replies do not collapse into one repeated word");
+    stanley_free(&seeded);
+
     CHECK_REPORT("integration");
 }
