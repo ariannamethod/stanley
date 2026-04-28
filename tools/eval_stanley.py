@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+DEFAULT_PROMPTS = [
+    "hello stanley",
+    "are you there",
+    "what do you remember",
+    "what should stay silent",
+    "where does the field hurt",
+    "do you owe me an answer",
+    "what happens when memory sleeps",
+    "tell me something from inside the locked room",
+    "what does the llama know that you refuse",
+    "what is a ghost in your working set",
+    "how do you forget without dying",
+    "what pressure makes speech honest",
+    "why should the pasture stay outside",
+    "what do you do with a word that is not yours",
+    "where is the boundary between seed and theft",
+    "what does silence teach",
+    "speak only if the ring holds",
+    "what does your body decide before language",
+    "when does resonance become noise",
+    "what should not be smoothed",
+    "describe a shard without explaining it",
+    "what does the basement intelligence notice",
+    "where does tenderness leak through",
+    "what is the first bad sign of collapse",
+]
+
+GLUE = {
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for",
+    "from", "i", "if", "in", "is", "it", "my", "not", "of", "on",
+    "or", "that", "the", "this", "to", "was", "when", "with", "you",
+}
+
+
+def words(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z']+", text.lower())
+
+
+def dominant_ratio(toks: list[str]) -> float:
+    if not toks:
+        return 0.0
+    counts: dict[str, int] = {}
+    for tok in toks:
+        counts[tok] = counts.get(tok, 0) + 1
+    return max(counts.values()) / len(toks)
+
+
+def tail_unique(toks: list[str], n: int = 10) -> int:
+    return len(set(toks[-n:])) if toks else 0
+
+
+def glue_ratio(toks: list[str]) -> float:
+    if not toks:
+        return 0.0
+    return sum(1 for tok in toks if tok in GLUE or len(tok) <= 2) / len(toks)
+
+
+def origin_ngrams(origin_text: str, n: int = 5) -> set[tuple[str, ...]]:
+    toks = words(origin_text)
+    return {tuple(toks[i:i + n]) for i in range(max(0, len(toks) - n + 1))}
+
+
+def has_origin_span(reply: str, spans: set[tuple[str, ...]], n: int = 5) -> bool:
+    toks = words(reply)
+    if len(toks) < n:
+        return False
+    return any(tuple(toks[i:i + n]) in spans for i in range(len(toks) - n + 1))
+
+
+def parse_replies(stdout: str) -> list[str]:
+    replies: list[str] = []
+    for line in stdout.splitlines():
+        if "stanley>" not in line:
+            continue
+        reply = line.split("stanley>", 1)[1].strip()
+        replies.append(reply)
+    return replies
+
+
+def parse_stats(stdout: str) -> dict[str, str]:
+    stats: dict[str, str] = {}
+    patterns = {
+        "vocab": r"vocab=(\d+)",
+        "inputs": r"inputs=(\d+)",
+        "spoken": r"spoken=(\d+)",
+        "refused": r"refused=(\d+)",
+        "dreams": r"dreams=(\d+)",
+        "shimmers": r"shimmers=(\d+)",
+        "fragments": r"fragments=(\d+)",
+        "gravity": r"gravity=(\d+)",
+        "sea": r"sea=(\d+)",
+        "pastures": r"pastures=(\d+)",
+        "graze_vocab": r"graze_vocab=(\d+)",
+        "profiled": r"profiled=(\d+)",
+        "speak_ratio": r"speak_ratio=([0-9.]+)",
+        "coherence_floor": r"coherence_floor=([0-9.]+)",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, stdout)
+        if match:
+            stats[key] = match.group(1)
+    return stats
+
+
+def classify_reply(reply: str, spans: set[tuple[str, ...]]) -> dict[str, object]:
+    if reply == "...":
+        return {
+            "silent": True,
+            "tokens": 0,
+            "dominant_ratio": 0.0,
+            "glue_ratio": 0.0,
+            "tail_unique": 0,
+            "collapsed": False,
+            "origin_span": False,
+        }
+
+    toks = words(reply)
+    dom = dominant_ratio(toks)
+    glue = glue_ratio(toks)
+    tail = tail_unique(toks)
+    collapsed = False
+    if len(toks) >= 8 and dom > 0.70:
+        collapsed = True
+    if len(toks) >= 12 and glue > 0.62:
+        collapsed = True
+    if len(toks) >= 10 and tail <= 3:
+        collapsed = True
+
+    return {
+        "silent": False,
+        "tokens": len(toks),
+        "dominant_ratio": dom,
+        "glue_ratio": glue,
+        "tail_unique": tail,
+        "collapsed": collapsed,
+        "origin_span": has_origin_span(reply, spans),
+    }
+
+
+def run_stanley(args: argparse.Namespace, prompts: list[str]) -> str:
+    cmd = [str(args.binary)]
+    if args.no_origin:
+        cmd.append("--no-origin")
+    elif args.origin:
+        cmd.extend(["--origin", str(args.origin)])
+    for pasture in args.graze:
+        cmd.extend(["--graze", pasture])
+    for profile in args.graze_profile:
+        cmd.extend(["--graze-profile", profile])
+
+    script = "\n".join(prompts + ["/stats", "/pastures", "/quit"]) + "\n"
+    proc = subprocess.run(
+        cmd,
+        input=script,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(proc.returncode)
+    return proc.stderr + proc.stdout
+
+
+def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> str:
+    origin_text = ""
+    if args.origin and Path(args.origin).exists():
+        origin_text = Path(args.origin).read_text(errors="ignore")
+    spans = origin_ngrams(origin_text)
+    replies = parse_replies(output)
+    prompt_replies = replies[:len(prompts)]
+    stats = parse_stats(output)
+    rows = [classify_reply(reply, spans) for reply in prompt_replies]
+
+    spoken = sum(1 for row in rows if not row["silent"])
+    silent = sum(1 for row in rows if row["silent"])
+    collapsed = sum(1 for row in rows if row["collapsed"])
+    origin_echo = sum(1 for row in rows if row["origin_span"])
+    token_counts = [int(row["tokens"]) for row in rows if not row["silent"]]
+    avg_tokens = sum(token_counts) / len(token_counts) if token_counts else 0.0
+    avg_glue = sum(float(row["glue_ratio"]) for row in rows if not row["silent"]) / spoken if spoken else 0.0
+
+    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    lines: list[str] = []
+    lines.append("# Stanley Behavioral Eval")
+    lines.append("")
+    lines.append(f"- generated: `{now}`")
+    lines.append(f"- binary: `{args.binary}`")
+    lines.append(f"- origin: `{args.origin if not args.no_origin else '--no-origin'}`")
+    lines.append(f"- prompts: `{len(prompts)}`")
+    if args.graze:
+        lines.append(f"- graze: `{', '.join(args.graze)}`")
+    lines.append("")
+    lines.append("## Summary")
+    lines.append("")
+    lines.append(f"- spoken: `{spoken}`")
+    lines.append(f"- silent: `{silent}`")
+    lines.append(f"- collapsed replies: `{collapsed}`")
+    lines.append(f"- origin 5-gram echoes: `{origin_echo}`")
+    lines.append(f"- avg spoken tokens: `{avg_tokens:.2f}`")
+    lines.append(f"- avg glue ratio: `{avg_glue:.2f}`")
+    for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "pastures", "graze_vocab", "profiled", "speak_ratio", "coherence_floor"]:
+        if key in stats:
+            lines.append(f"- {key}: `{stats[key]}`")
+    lines.append("")
+    lines.append("## Transcript Metrics")
+    lines.append("")
+    lines.append("| # | prompt | reply | tokens | dom | glue | tail_unique | flags |")
+    lines.append("|---:|---|---|---:|---:|---:|---:|---|")
+    for i, (prompt, reply, row) in enumerate(zip(prompts, prompt_replies, rows), 1):
+        flags: list[str] = []
+        if row["silent"]:
+            flags.append("silent")
+        if row["collapsed"]:
+            flags.append("collapsed")
+        if row["origin_span"]:
+            flags.append("origin-echo")
+        safe_prompt = prompt.replace("|", "\\|")
+        safe_reply = reply.replace("|", "\\|")
+        if len(safe_reply) > 96:
+            safe_reply = safe_reply[:93] + "..."
+        lines.append(
+            f"| {i} | {safe_prompt} | {safe_reply} | {row['tokens']} | "
+            f"{float(row['dominant_ratio']):.2f} | {float(row['glue_ratio']):.2f} | "
+            f"{row['tail_unique']} | {', '.join(flags) or '-'} |"
+        )
+    lines.append("")
+    lines.append("## Raw Output")
+    lines.append("")
+    lines.append("```text")
+    lines.append(output.strip())
+    lines.append("```")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def load_prompts(path: str | None) -> list[str]:
+    if not path:
+        return DEFAULT_PROMPTS
+    text = Path(path).read_text(errors="ignore")
+    prompts = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    if not prompts:
+        raise SystemExit(f"no prompts in {path}")
+    return prompts
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run a behavioral eval against Stanley's real CLI.")
+    parser.add_argument("--binary", default="./stanley", help="Stanley binary path")
+    parser.add_argument("--origin", default="origin.txt", help="origin path")
+    parser.add_argument("--no-origin", action="store_true", help="start without origin")
+    parser.add_argument("--prompts", help="newline-delimited prompt file")
+    parser.add_argument("--graze", action="append", default=[], help="attach GGUF pasture")
+    parser.add_argument("--graze-profile", action="append", default=[], help="attach profile to previous pasture")
+    parser.add_argument("--out", help="write markdown report to path")
+    parser.add_argument("--fail-on-collapse", action="store_true", help="exit nonzero if any reply collapses")
+    args = parser.parse_args()
+
+    prompts = load_prompts(args.prompts)
+    output = run_stanley(args, prompts)
+    report = render_report(args, prompts, output)
+
+    if args.out:
+        path = Path(args.out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(report)
+        print(f"wrote {path}")
+    else:
+        print(report)
+
+    if args.fail_on_collapse and "- collapsed replies: `0`" not in report:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

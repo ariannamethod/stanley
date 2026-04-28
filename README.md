@@ -195,6 +195,9 @@ graze.h/.c     — minimal GGUF metadata-only vocab harvester (~190 LOC). mmap, 
 main.c         — thin CLI: /stats /pastures /dream /shimmer /quit, --origin --no-origin --graze --graze-profile --shimmer
 origin.txt     — Stanley's Act 1–4 origin text, preserved from 1.0
 weights/       — bundled GGUF pasture: nano89-base-q4.gguf (57 MB)
+tools/         — audit/eval helpers:
+                  • audit_origin.py    — counts repeated origin openings / bigrams
+                  • eval_stanley.py    — behavioral CLI eval: transcript + collapse/glue/silence metrics
 tests/         — 6 suites, one per architectural concern:
                   • test_core.c        — pulse, cooccur, chambers, refuse, dream basics
                   • test_graze.c       — GGUF parse, NULL safety, missing-file, control-token skip
@@ -208,6 +211,12 @@ legacy/        — all of Stanley 1.0 Python: organism, hybrid, trainer, app, te
 ```
 
 Run everything: `make && make test` — each suite is a standalone binary printing PASS/FAIL.
+
+Run the behavioral harness: `make eval`. This drives the real CLI through a
+fixed prompt set, then prints a Markdown report with silence rate, collapse
+flags, glue-word ratio, origin-span echoes, memory counters, and the raw
+transcript. Use `python3 tools/eval_stanley.py --out evals/run.md` when you
+want to keep a report for comparing origin or sampler changes.
 
 ## usage
 

@@ -20,7 +20,7 @@ TEST_SRC  := tests/test_core.c tests/test_graze.c tests/test_maturity.c \
              tests/test_shimmer.c tests/test_refused.c tests/test_integration.c
 TEST_BINS := $(TEST_SRC:.c=)
 
-.PHONY: all clean test test-build run demo
+.PHONY: all clean test test-build eval run demo
 
 all: $(BIN)
 
@@ -48,6 +48,9 @@ test-build: $(TEST_BINS)
 
 tests/test_%: tests/test_%.c stanley.c graze.c $(HDR) tests/check.h
 	$(CC) $(CFLAGS) -o $@ $< stanley.c graze.c $(LDFLAGS)
+
+eval: $(BIN)
+	python3 tools/eval_stanley.py --fail-on-collapse
 
 clean:
 	rm -f $(OBJ) $(BIN) $(TEST_BINS)
