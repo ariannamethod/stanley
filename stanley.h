@@ -72,14 +72,15 @@ typedef struct {
  *   'E' external — happened (user interaction).
  *   'I' internal — Stanley's own reflection that crystallized from a deep ring.
  *   'M' meta     — MetaStanley private phrase, invisible unless inspected.
+ *   'S' scar     — clustered refusal shape; repulsive memory, no public text.
  *   'R' refused  — a moment Stanley chose silence; pulse imprinted for dream replay.
  */
 typedef struct {
-    char    kind;                                /* 'E' / 'I' / 'M' / 'R' */
-    char   *content;                             /* owned; may be NULL for 'R' */
+    char    kind;                                /* 'E' / 'I' / 'M' / 'S' / 'R' */
+    char   *content;                             /* owned; may be NULL for 'R'/'S' */
     float   resonance;
     int64_t created_step;                        /* monotonic clock */
-    st_pulse pulse;                              /* the field state at write time (used by 'R') */
+    st_pulse pulse;                              /* field state at write time (used by 'R'/'S') */
 } st_shard;
 
 typedef struct {
@@ -160,6 +161,7 @@ typedef struct {
     int64_t n_dreams;
     int64_t n_shimmers;                          /* unprompted internal passes */
     int64_t n_inner;                             /* private MetaStanley phrase ticks */
+    int64_t n_scars;                             /* clustered refusal scars */
     char    last_inner[STANLEY_META_PHRASE_CHARS];
 
     /* adaptive maturity — rolling window of speak/silence outcomes */

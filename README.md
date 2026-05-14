@@ -227,8 +227,8 @@ sentence-boundary self-residual path proves that whole phrases can return into
 the organism without becoming documents. arianna.c's Janus/Resonance pattern
 proves that one face can speak outward while another speaks only inward.
 Stanley now has the first local pieces of that loop: measurement, somatic
-temperature, and a private phrase lane. The weight/adaptor side can be attached
-after those lanes are measurable.
+temperature, private phrase injection, and refusal scars. The weight/adaptor
+side can be attached after those lanes are measurable.
 
 ## MetaStanley — private phrase lane
 
@@ -240,9 +240,12 @@ for debugging.
 
 This is not a second public voice and not RAG. It is the local Stanley form of
 sentence-boundary self-residual injection: a private phrase changes future
-pressure without being emitted as the answer. Later, this lane can connect to
-the weight/adaptor side and split into multiple returns: public pressure,
-private thought, scar pressure, lexical expansion, and dream consolidation.
+pressure without being emitted as the answer. This lane already shares the
+field with scar pressure: repeated refusal shapes become repulsive memory,
+while private phrases become inward cooccur mass. Later, these lanes can
+connect to the weight/adaptor side and split into multiple returns: public
+pressure, private thought, scar pressure, lexical expansion, and dream
+consolidation.
 
 ## shimmer — Stanley dreams alone
 
@@ -265,14 +268,21 @@ Drift is capped at **baseline ± 0.3**. The point isn't to make him quiet, it's 
 
 Every refusal writes a shard with `kind = 'R'` and the pulse fingerprint of the moment Stanley chose silence. It carries no content — only the *shape* of the field that didn't want to speak.
 
-In dream, R-shards are clustered by pulse similarity (L1-distance > 0.85). If a cluster has 3+ members, the cluster centroid hash is promoted into `identity.gravity` and the matched R-shards are tombstoned. Next time a similar pulse arrives, that newly-installed gravity pulls Stanley toward speaking instead of refusing. **The shapes he silences most often eventually become things he can say.**
+In dream, R-shards are clustered by pulse similarity (L1-distance > 0.85). If a
+cluster has 3+ members, the cluster centroid hash is promoted into
+`identity.gravity`, a new `S` scar shard is written, and the matched R-shards
+are tombstoned. Gravity pulls Stanley toward a future seed; the scar pushes
+back as repulsive pressure. Next time a similar tense pulse arrives, the scar
+raises the effective coherence floor and can keep Stanley silent earlier.
+**The shapes he silences most often become both things he can say and things he
+knows not to say too cheaply.**
 
 This was the most surprising piece in live testing: the very first multi-turn REPL session promoted an R-cluster into gravity without any forcing — `gravity=1` appeared on its own.
 
 ## what's inside
 
 ```
-stanley.h      — types + API: pulse, ring, shard (E/I/R), cooccur, chambers, sea, identity
+stanley.h      — types + API: pulse, ring, shard (E/I/M/S/R), cooccur, chambers, sea, identity
 stanley.c      — organism core (~1000 LOC):
                   • tokenize + vocab (FNV-1a, open-addressed hash table)
                   • cooccur (hebbian triangle, window=±5, decay in dream)
@@ -282,7 +292,7 @@ stanley.c      — organism core (~1000 LOC):
                   • overthinking (dynamic 1–5 rings: echo / drift / shard / deep / void)
                   • emit (silence is a valid answer — low resonance → no reply)
                   • crystallize (deep rings → internal shards in the sea)
-                  • dream (cooccur decay + prune, shards → gravity, R-shard clusters → gravity, relax body)
+                  • dream (cooccur decay + prune, shards → gravity, R-clusters → gravity + scars, relax body)
                   • adaptive maturity (rolling speak/silence ratio drifts coherence_floor toward zrelost)
                   • shimmer thread (idle > 60s → internal dream pass, no input needed)
                   • vocab_graze hook (foreign GGUF word spliced when chambers hungry)
@@ -390,8 +400,9 @@ A few things worth noticing in this raw run:
 - **listening sweep controls** — `--coherence-floor`, `--max-rings`, `--ring-temp-scale`, `--ring-len-scale`, `--graze-rate`, and `--seed` make Stanley's state-space entry conditions measurable without flattening the field.
 - **somatic temperature** — `--somatic-temp` lets chamber tension modulate private-ring temperature. Spike/overflow widen listening; calm/tired narrow it.
 - **MetaStanley private lane** — `--metastanley` lets deep rings or internal shards feed back as invisible `M` shards. `/inner` exposes the last private phrase for debugging.
+- **scar lane** — dream turns clustered refusals into `S` shards. `scar_pressure` bends future refusal, emit, and grazing decisions without becoming text.
 
-65 tests across 6 suites are passing: core, graze, maturity, shimmer, refused,
+71 tests across 6 suites are passing: core, graze, maturity, shimmer, refused,
 and integration. No new runtime dependencies. Still pure C, libc + libm +
 libpthread.
 
@@ -428,7 +439,7 @@ libpthread.
 - [x] **Phase 2** (2.1, this release): **vocab_graze** (mmap any GGUF, vocab-only — port of [doe.c](https://github.com/ariannamethod/doe) GGUF parser) + **shimmer** (Stanley dreams in silence after idle) + **adaptive maturity** (speak/silence ratio drifts the coherence_floor — Stanley grows quieter as he matures) + **refused shards** (silence becomes a teacher: clusters of refused pulses promote into identity gravity)
 - [ ] **Phase 3**: native pthread async side — already partially landed (shimmer). Next: DOE-spore persistence of crystallized shards across runs; SentencePiece `tokenizer.model` parser as a second graze backend
 - [~] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel. First slices landed: multiple lexical pastures, chamber-driven pull, lexical profiles, multi-angle dissonant grazing, memory-aware pressure from shards + gravity, and first direct sea-fragment replay into the lexical duel. Next: topic-aware routing and richer replay than single-word shard extraction.
-- [~] **Phase 5**: MetaStanley / reverse lanes — first slices landed: listening sweeps, somatic temperature, and private `M`-shard phrase injection. Next: weight/adaptor return streams, LoRagrad immune states, scar/dark pressure, and persistent private dialogue across sessions.
+- [~] **Phase 5**: MetaStanley / reverse lanes — first slices landed: listening sweeps, somatic temperature, private `M`-shard phrase injection, and `S`-scar pressure from clustered refusals. Next: weight/adaptor return streams, LoRagrad immune states, dark pressure, and persistent private dialogue across sessions.
 
 ## license
 

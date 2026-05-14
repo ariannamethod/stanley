@@ -335,6 +335,26 @@ st_pulse stanley_pulse(const Stanley *s, const char *input) {
  * SUBJECTIVITY — refuse gate
  * ============================================================ */
 
+static float pulse_similarity(st_pulse a, st_pulse b);
+
+static float scar_pressure_for_pulse(const Stanley *s, st_pulse p, int window) {
+    if (!s || window <= 0 || s->sea.n <= 0) return 0.0f;
+    int seen = 0;
+    float pressure = 0.0f;
+    for (int off = 0; off < s->sea.n && seen < window; off++) {
+        int idx = s->sea.n - 1 - off;
+        if (idx < 0) break;
+        const st_shard *sh = &s->sea.shards[idx];
+        if (sh->kind != 'S') continue;
+        float sim = pulse_similarity(p, sh->pulse);
+        float recency = 1.0f - 0.10f * (float)seen;
+        if (recency < 0.25f) recency = 0.25f;
+        pressure += recency * sim * (0.4f + sh->resonance);
+        seen++;
+    }
+    return st_clamp(pressure, 0.0f, 2.0f);
+}
+
 int stanley_refuses(const Stanley *s, st_pulse p) {
     /* Refuse conditions (ANY of):
      *  1. Pulse arousal is very high AND chambers already overloaded —
@@ -347,12 +367,15 @@ int stanley_refuses(const Stanley *s, st_pulse p) {
     float calm = s->body.act[0];
     float over = s->body.act[2];
     float margin = calm - over;                     /* positive = coherent */
+    float scar = scar_pressure_for_pulse(s, p, 8);
+    float floor = st_clamp(s->coherence_floor + 0.08f * scar, 0.0f, 1.0f);
 
     if (p.arousal > 0.7f && over > 0.7f) return 1;
     if (p.novelty > 0.85f && s->me.n_fragments == 0) return 1;
-    if (margin < s->coherence_floor) {
+    if (scar > 0.85f && p.arousal > 0.55f && over > 0.45f) return 1;
+    if (margin < floor) {
         /* probabilistic silence */
-        if (st_randu() < 0.5f * (s->coherence_floor - margin + 0.1f)) return 1;
+        if (st_randu() < 0.5f * (floor - margin + 0.1f)) return 1;
     }
     return 0;
 }
@@ -751,7 +774,13 @@ static float sea_recent_charge(const Stanley *s, char kind, int window) {
         if (sh->kind != kind) continue;
         float w = 1.0f - 0.08f * (float)seen;
         if (w < 0.2f) w = 0.2f;
-        charge += w * (kind == 'I' ? sh->resonance + 0.2f : sh->pulse.arousal + 0.3f * sh->pulse.entropy);
+        if (kind == 'I') {
+            charge += w * (sh->resonance + 0.2f);
+        } else if (kind == 'S') {
+            charge += w * (sh->resonance + 0.35f * sh->pulse.arousal + 0.20f * sh->pulse.entropy);
+        } else {
+            charge += w * (sh->pulse.arousal + 0.3f * sh->pulse.entropy);
+        }
         seen++;
     }
     return charge;
@@ -873,6 +902,7 @@ static float graze_memory_pull(const Stanley *s, int idx, int angle_idx, const c
     if (!s || idx < 0 || idx >= s->n_grazes) return 0.0f;
     float internal = sea_recent_charge(s, 'I', 6);
     float refused  = sea_recent_charge(s, 'R', 6);
+    float scar     = sea_recent_charge(s, 'S', 6);
     float gravity  = gravity_pressure(s);
     int internal_echo = sea_word_echoes(s, 'I', word, 8);
 
@@ -889,12 +919,12 @@ static float graze_memory_pull(const Stanley *s, int idx, int angle_idx, const c
             else          score += 0.02f * internal;
             break;
         case 1: /* wound leans toward profiled/peripheral fields when refusals pile up */
-            if (idx > 0) score += 0.08f * refused + 0.03f * gravity;
-            else         score += 0.02f * refused;
+            if (idx > 0) score += 0.08f * refused + 0.06f * scar + 0.03f * gravity;
+            else         score += 0.02f * refused + 0.02f * scar;
             break;
         default: /* contradiction is where gravity starts bending the foreign */
-            if (idx > 0) score += 0.06f * gravity + 0.05f * refused;
-            else         score += 0.03f * gravity;
+            if (idx > 0) score += 0.06f * gravity + 0.05f * refused + 0.05f * scar;
+            else         score += 0.03f * gravity + 0.02f * scar;
             break;
     }
     return score;
@@ -1069,14 +1099,17 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
     if (n_rings <= 0) return NULL;
     int best = -1;
     float best_score = -1e30f;
+    float scar = sea_recent_charge(s, 'S', 6);
     for (int i = 0; i < n_rings; i++) {
         float score = rings[i].resonance + 0.5f * (float)rings[i].meta_patterns;
+        if (rings[i].level <= 1) score -= 0.04f * scar;
+        else                    score -= 0.02f * scar;
         if (score > best_score) { best_score = score; best = i; }
     }
     if (best < 0) return NULL;
 
     /* silence threshold — if nothing is warm enough, don't speak. */
-    float min_score = 1.0f + 0.5f * s->coherence_floor;
+    float min_score = 1.0f + 0.5f * s->coherence_floor + 0.04f * scar;
     if (best_score < min_score) {
         s->n_refused++;
         return NULL;
@@ -1208,6 +1241,15 @@ static void sea_record_refused(st_sea *sea, st_pulse pulse, int64_t step) {
     sea->shards[slot].kind = 'R';
     sea->shards[slot].content = NULL;
     sea->shards[slot].resonance = 0;
+    sea->shards[slot].created_step = step;
+    sea->shards[slot].pulse = pulse;
+}
+
+static void sea_record_scar(st_sea *sea, st_pulse pulse, float strength, int64_t step) {
+    int slot = sea_alloc_slot(sea);
+    sea->shards[slot].kind = 'S';
+    sea->shards[slot].content = NULL;
+    sea->shards[slot].resonance = strength;
     sea->shards[slot].created_step = step;
     sea->shards[slot].pulse = pulse;
 }
@@ -1418,6 +1460,8 @@ void stanley_dream(Stanley *s) {
                 s->me.gravity_strength[s->me.n_gravity] = 0.5f * (float)cluster_n;
                 s->me.n_gravity++;
             }
+            sea_record_scar(&s->sea, centroid, st_clamp(0.20f * (float)cluster_n, 0.4f, 1.4f), s->sea.step);
+            s->n_scars++;
             /* clear all R-shards in this cluster so they don't double-count next dream */
             for (int j = i; j < s->sea.n; j++) {
                 if (s->sea.shards[j].kind == 'R' &&
@@ -1641,9 +1685,11 @@ void stanley_repl(Stanley *s) {
             printf("  identity: fragments=%d gravity=%d  sea=%d  pastures=%d  graze_vocab=%d\n",
                    s->me.n_fragments, s->me.n_gravity, s->sea.n, s->n_grazes, graze_v);
             printf("  grazing: profiled=%d\n", graze_profiled_pastures(s));
-            printf("  memory: internal_charge=%.2f refused_charge=%.2f gravity_pressure=%.2f\n",
+            printf("  memory: internal_charge=%.2f refused_charge=%.2f scar_pressure=%.2f scars=%lld gravity_pressure=%.2f\n",
                    sea_recent_charge(s, 'I', 6),
                    sea_recent_charge(s, 'R', 6),
+                   sea_recent_charge(s, 'S', 6),
+                   (long long)s->n_scars,
                    gravity_pressure(s));
             printf("  maturity: speak_ratio=%.2f  coherence_floor=%.3f (baseline %.3f)\n",
                    ratio, s->coherence_floor, s->coherence_floor_baseline);

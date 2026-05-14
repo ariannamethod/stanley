@@ -38,6 +38,8 @@ SUMMARY_KEYS = [
     "len_scale",
     "graze_rate",
     "temp_factor",
+    "scars",
+    "scar_pressure",
     "inner_ticks",
 ]
 

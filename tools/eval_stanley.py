@@ -100,9 +100,11 @@ def parse_stats(stdout: str) -> dict[str, str]:
         "fragments": r"fragments=(\d+)",
         "gravity": r"gravity=(\d+)",
         "sea": r"sea=(\d+)",
+        "scars": r"scars=(\d+)",
         "pastures": r"pastures=(\d+)",
         "graze_vocab": r"graze_vocab=(\d+)",
         "profiled": r"profiled=(\d+)",
+        "scar_pressure": r"scar_pressure=([0-9.]+)",
         "speak_ratio": r"speak_ratio=([0-9.]+)",
         "coherence_floor": r"coherence_floor=([0-9.]+)",
         "max_rings": r"max_rings=(\d+)",
@@ -258,7 +260,7 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
     lines.append(f"- origin 5-gram echoes: `{origin_echo}`")
     lines.append(f"- avg spoken tokens: `{avg_tokens:.2f}`")
     lines.append(f"- avg glue ratio: `{avg_glue:.2f}`")
-    for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "pastures", "graze_vocab", "profiled", "speak_ratio", "coherence_floor", "max_rings", "temp_scale", "len_scale", "graze_rate", "somatic_temp", "somatic_temp_strength", "temp_factor", "metastanley", "metastanley_rate", "inner_ticks"]:
+    for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "scars", "pastures", "graze_vocab", "profiled", "scar_pressure", "speak_ratio", "coherence_floor", "max_rings", "temp_scale", "len_scale", "graze_rate", "somatic_temp", "somatic_temp_strength", "temp_factor", "metastanley", "metastanley_rate", "inner_ticks"]:
         if key in stats:
             lines.append(f"- {key}: `{stats[key]}`")
     lines.append("")
