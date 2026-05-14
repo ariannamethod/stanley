@@ -36,6 +36,7 @@ extern "C" {
 #define STANLEY_SHIMMER_TICK_S 5        /* shimmer wakeup cadence (s) */
 #define STANLEY_MAX_GRAZES    8         /* max external lexical pastures */
 #define STANLEY_PRIMARY_GRAZE_BIAS 0.70f/* favor the first pasture as the main lexical field */
+#define STANLEY_META_PHRASE_CHARS 512    /* last private MetaStanley phrase */
 
 /* ============================================================
  * TYPES
@@ -70,10 +71,11 @@ typedef struct {
 /* Shard — one memory atom in the sea.
  *   'E' external — happened (user interaction).
  *   'I' internal — Stanley's own reflection that crystallized from a deep ring.
+ *   'M' meta     — MetaStanley private phrase, invisible unless inspected.
  *   'R' refused  — a moment Stanley chose silence; pulse imprinted for dream replay.
  */
 typedef struct {
-    char    kind;                                /* 'E' / 'I' / 'R' */
+    char    kind;                                /* 'E' / 'I' / 'M' / 'R' */
     char   *content;                             /* owned; may be NULL for 'R' */
     float   resonance;
     int64_t created_step;                        /* monotonic clock */
@@ -145,6 +147,8 @@ typedef struct {
     float ring_temp_scale;                       /* listening condition: scales private-ring temperature */
     float ring_len_scale;                        /* listening condition: scales private-ring length */
     float graze_rate;                            /* listening condition: probability of tail arbitration */
+    int   metastanley_enabled;                   /* private inner phrase lane */
+    float metastanley_rate;                      /* chance to run after a spoken tick */
 
     /* stats */
     int64_t n_inputs;
@@ -152,6 +156,8 @@ typedef struct {
     int64_t n_refused;
     int64_t n_dreams;
     int64_t n_shimmers;                          /* unprompted internal passes */
+    int64_t n_inner;                             /* private MetaStanley phrase ticks */
+    char    last_inner[STANLEY_META_PHRASE_CHARS];
 
     /* adaptive maturity — rolling window of speak/silence outcomes */
     uint8_t speak_window[STANLEY_SPEAK_WINDOW];

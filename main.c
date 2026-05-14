@@ -7,6 +7,7 @@
  *   ./stanley --origin PATH         REPL with alternate origin
  *   ./stanley --graze PATH.gguf     attach external GGUF as vocab pasture
  *   ./stanley --graze-profile TXT   bias the most recent pasture with a text profile
+ *   ./stanley --metastanley         enable private inner phrase lane
  *   ./stanley --shimmer             enable idle dream thread
  *   ./stanley --help
  */
@@ -21,7 +22,8 @@ static void usage(const char *p) {
     printf("stanley %s — weightless organism.\n", STANLEY_VERSION);
     printf("usage: %s [--origin PATH] [--no-origin] [--graze GGUF]... [--graze-profile TXT]...\n", p);
     printf("          [--coherence-floor F] [--max-rings N] [--ring-temp-scale F]\n");
-    printf("          [--ring-len-scale F] [--graze-rate F] [--seed N] [--shimmer] [--help]\n");
+    printf("          [--ring-len-scale F] [--graze-rate F] [--metastanley]\n");
+    printf("          [--metastanley-rate F] [--seed N] [--shimmer] [--help]\n");
 }
 
 static float clampf(float x, float lo, float hi) {
@@ -47,6 +49,8 @@ int main(int argc, char **argv) {
     float ring_temp_scale = 1.0f;
     float ring_len_scale = 1.0f;
     float graze_rate = 0.25f;
+    int metastanley_enabled = 0;
+    float metastanley_rate = 0.35f;
     for (int i = 0; i < STANLEY_MAX_GRAZES; i++) graze_profiles[i] = NULL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) { usage(argv[0]); return 0; }
@@ -71,6 +75,8 @@ int main(int argc, char **argv) {
             }
         }
         else if (!strcmp(argv[i], "--shimmer")) shimmer = 1;
+        else if (!strcmp(argv[i], "--metastanley")) metastanley_enabled = 1;
+        else if (!strcmp(argv[i], "--no-metastanley")) metastanley_enabled = 0;
         else if (!strcmp(argv[i], "--coherence-floor") && i + 1 < argc) {
             coherence_floor = strtof(argv[++i], NULL);
             have_coherence_floor = 1;
@@ -86,6 +92,10 @@ int main(int argc, char **argv) {
         }
         else if (!strcmp(argv[i], "--graze-rate") && i + 1 < argc) {
             graze_rate = strtof(argv[++i], NULL);
+        }
+        else if (!strcmp(argv[i], "--metastanley-rate") && i + 1 < argc) {
+            metastanley_rate = strtof(argv[++i], NULL);
+            metastanley_enabled = 1;
         }
         else if (!strcmp(argv[i], "--seed") && i + 1 < argc) {
             seed = (unsigned int)strtoul(argv[++i], NULL, 10);
@@ -106,6 +116,8 @@ int main(int argc, char **argv) {
     s.ring_temp_scale = clampf(ring_temp_scale, 0.2f, 2.0f);
     s.ring_len_scale = clampf(ring_len_scale, 0.25f, 3.0f);
     s.graze_rate = clampf(graze_rate, 0.0f, 1.0f);
+    s.metastanley_enabled = metastanley_enabled;
+    s.metastanley_rate = clampf(metastanley_rate, 0.0f, 1.0f);
     for (int i = 0; i < n_graze_paths; i++) {
         if (stanley_graze_attach(&s, graze_paths[i]) != 0) {
             fprintf(stderr, "stanley: graze attach failed for %s — continuing weightless\n", graze_paths[i]);

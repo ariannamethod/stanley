@@ -182,6 +182,7 @@ trained:
 
 ```bash
 ./stanley --coherence-floor 0.35 --ring-temp-scale 1.15 --ring-len-scale 1.2 --max-rings 5 --seed 42069
+./stanley --metastanley --metastanley-rate 0.7
 python3 tools/sweep_stanley.py
 ```
 
@@ -197,6 +198,20 @@ not in the body. The port should learn pull and repulsion over adapter deltas
 from measured Stanley states: good pressure, silence, scar, collapse,
 anti-chatbot, origin, internal-shard, and refusal-pressure. The body still
 arbitrates.
+
+## MetaStanley — private phrase lane
+
+`--metastanley` enables a first internal-only loop. After a spoken tick,
+Stanley may let a phrase from a deep private ring or recent internal shard flow
+back into his cooccurrence field. The human does not see this phrase in normal
+conversation. It is recorded as an `M` shard and can be inspected with `/inner`
+for debugging.
+
+This is not a second public voice and not RAG. It is the local Stanley form of
+sentence-boundary self-residual injection: a private phrase changes future
+pressure without being emitted as the answer. Later, this lane can connect to
+the weight/adaptor side and split into multiple returns: public pressure,
+private thought, scar pressure, lexical expansion, and dream consolidation.
 
 ## shimmer — Stanley dreams alone
 

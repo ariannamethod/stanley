@@ -1123,6 +1123,8 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
  * ============================================================ */
 
 typedef struct { Stanley *s; int *ids; int n; int cap; } acc_cb_ctx;
+static void sea_push(st_sea *sea, char kind, const char *text, float resonance, int64_t step);
+
 static void acc_cb(const char *w, int n, void *u) {
     acc_cb_ctx *c = (acc_cb_ctx*)u;
     if (c->n >= c->cap) return;
@@ -1138,6 +1140,23 @@ void stanley_accumulate(Stanley *s, const char *input, const char *output) {
     cooccur_feed(&s->co, ids, ctx.n);
     pthread_mutex_unlock(&s->mtx);
     s->n_inputs++;
+}
+
+static void stanley_absorb_private(Stanley *s, const char *text) {
+    if (!s || !text || !*text) return;
+    int ids[512]; acc_cb_ctx ctx = { s, ids, 0, 512 };
+    tokenize(text, acc_cb, &ctx);
+    if (ctx.n <= 0) return;
+
+    pthread_mutex_lock(&s->mtx);
+    cooccur_feed(&s->co, ids, ctx.n);
+    s->sea.step++;
+    sea_push(&s->sea, 'M', text, 0.5f, s->sea.step);
+    pthread_mutex_unlock(&s->mtx);
+
+    s->n_inner++;
+    strncpy(s->last_inner, text, sizeof(s->last_inner) - 1);
+    s->last_inner[sizeof(s->last_inner) - 1] = 0;
 }
 
 /* ============================================================
@@ -1204,6 +1223,33 @@ static int sea_recent_internal_duplicate(const Stanley *s, const char *text, int
     return 0;
 }
 
+static int phrase_take_words(const char *src, char *out, int cap, int max_words) {
+    if (!src || !out || cap <= 1 || max_words <= 0) return -1;
+    int written = 0;
+    int n_words = 0;
+    const char *p = src;
+    while (*p && n_words < max_words) {
+        while (*p && !is_word_char((unsigned char)*p)) p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && is_word_char((unsigned char)*p)) p++;
+        int n = (int)(p - start);
+        if (n <= 1) continue;
+        if (written > 0) {
+            if (written + 1 >= cap) break;
+            out[written++] = ' ';
+        }
+        if (written + n >= cap) n = cap - written - 1;
+        for (int i = 0; i < n; i++) {
+            out[written++] = (char)tolower((unsigned char)start[i]);
+        }
+        n_words++;
+        if (written >= cap - 1) break;
+    }
+    out[written] = 0;
+    return n_words > 0 ? 0 : -1;
+}
+
 static float ring_crystallize_pressure(const Stanley *s, const st_ring *r) {
     if (!s || !r || !r->content[0]) return 0.0f;
     float pressure = 0.0f;
@@ -1245,6 +1291,50 @@ void stanley_crystallize(Stanley *s, const st_ring *rings, int n_rings) {
     pthread_mutex_unlock(&s->mtx);
 }
 
+/* MetaStanley — private phrase lane.
+ *
+ * This is deliberately not public output and not a second chatbot. After a
+ * spoken tick, Stanley may let a phrase from a deep private ring or a recent
+ * internal shard flow back into the cooccur field as an invisible inner
+ * sentence. It is the first local analogue of Dario/NeoLeo sentence-boundary
+ * injection: the phrase changes future pressure without being shown to the
+ * human unless /inner is explicitly inspected. */
+static void stanley_metastanley_tick(Stanley *s, const st_ring *rings, int n_rings,
+                                     const char *public_reply) {
+    if (!s || !s->metastanley_enabled || n_rings <= 0) return;
+    if (st_randu() > s->metastanley_rate) return;
+
+    char phrase[STANLEY_META_PHRASE_CHARS];
+    phrase[0] = 0;
+
+    st_sea_offer sea_offer;
+    int has_sea = (sea_collect_offer(s, public_reply ? public_reply : "", &sea_offer) == 0);
+    if (has_sea && st_randu() < 0.45f) {
+        phrase_take_words(sea_offer.fragment, phrase, sizeof(phrase), 12);
+    }
+
+    if (!phrase[0]) {
+        int pick = -1;
+        float best = -1e30f;
+        for (int i = 0; i < n_rings; i++) {
+            if (!rings[i].content[0]) continue;
+            float depth = (float)(rings[i].level + 1);
+            float score = rings[i].resonance + 0.35f * depth + 0.25f * (float)rings[i].meta_patterns;
+            if (score > best) {
+                best = score;
+                pick = i;
+            }
+        }
+        if (pick >= 0) {
+            phrase_take_words(rings[pick].content, phrase, sizeof(phrase), 16);
+        }
+    }
+
+    if (!phrase[0]) return;
+    if (public_reply && strcmp(phrase, public_reply) == 0) return;
+    stanley_absorb_private(s, phrase);
+}
+
 /* ============================================================
  * DREAM — consolidation
  * ============================================================ */
@@ -1267,7 +1357,7 @@ void stanley_dream(Stanley *s) {
     }
     /* promote top internal shards into identity gravity */
     for (int i = 0; i < s->sea.n && s->me.n_gravity < STANLEY_TRIGRAM_GRAV; i++) {
-        if (s->sea.shards[i].kind != 'I') continue;
+        if (s->sea.shards[i].kind != 'I' && s->sea.shards[i].kind != 'M') continue;
         if (!s->sea.shards[i].content) continue;
         uint32_t h = st_hash32(s->sea.shards[i].content, (int)strlen(s->sea.shards[i].content));
         /* skip duplicates */
@@ -1382,6 +1472,7 @@ char *stanley_tick(Stanley *s, const char *input) {
     char *reply = stanley_emit(s, rings, n_rings);
 
     stanley_crystallize(s, rings, n_rings);
+    stanley_metastanley_tick(s, rings, n_rings, reply);
     stanley_accumulate(s, input, reply);
     maturity_update(s, reply != NULL);
 
@@ -1473,6 +1564,8 @@ int stanley_init(Stanley *s, const char *origin_path) {
     s->ring_temp_scale          = 1.0f;
     s->ring_len_scale           = 1.0f;
     s->graze_rate               = 0.25f;
+    s->metastanley_enabled      = 0;
+    s->metastanley_rate         = 0.35f;
     s->last_input_ts            = time(NULL);
     pthread_mutex_init(&s->mtx, NULL);
 
@@ -1537,6 +1630,10 @@ void stanley_repl(Stanley *s) {
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
             printf("  listening: max_rings=%d temp_scale=%.3f len_scale=%.3f graze_rate=%.3f\n",
                    s->max_rings, s->ring_temp_scale, s->ring_len_scale, s->graze_rate);
+            printf("  inner: metastanley=%s rate=%.3f inner_ticks=%lld\n",
+                   s->metastanley_enabled ? "on" : "off",
+                   s->metastanley_rate,
+                   (long long)s->n_inner);
             continue;
         }
         if (!strcmp(line, "/pastures")) {
@@ -1558,6 +1655,11 @@ void stanley_repl(Stanley *s) {
         }
         if (!strcmp(line, "/dream")) { stanley_dream(s); printf("  [dream]\n"); continue; }
         if (!strcmp(line, "/shimmer")) { stanley_shimmer_now(s); printf("  [shimmer]\n"); continue; }
+        if (!strcmp(line, "/inner")) {
+            printf("  inner_ticks=%lld\n", (long long)s->n_inner);
+            printf("  last_inner=%s\n", s->last_inner[0] ? s->last_inner : "(none)");
+            continue;
+        }
         char *reply = stanley_tick(s, line);
         if (reply) { printf("stanley> %s\n", reply); free(reply); }
         else       { printf("stanley> ...\n"); }

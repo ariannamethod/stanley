@@ -20,6 +20,7 @@ SWEEP = [
     ("single-ring", {"max_rings": 1}),
     ("deep-hot", {"max_rings": 5, "ring_temp_scale": 1.15, "ring_len_scale": 1.20}),
     ("eager-graze", {"graze_rate": 0.80}),
+    ("metastanley", {"metastanley": True, "metastanley_rate": 0.70}),
 ]
 
 
@@ -35,6 +36,7 @@ SUMMARY_KEYS = [
     "temp_scale",
     "len_scale",
     "graze_rate",
+    "inner_ticks",
 ]
 
 
@@ -76,6 +78,9 @@ def run_cell(args: argparse.Namespace, name: str, params: dict[str, object], out
     add_optional(cmd, "--ring-temp-scale", params.get("ring_temp_scale"))
     add_optional(cmd, "--ring-len-scale", params.get("ring_len_scale"))
     add_optional(cmd, "--graze-rate", params.get("graze_rate"))
+    if params.get("metastanley"):
+        cmd.append("--metastanley")
+    add_optional(cmd, "--metastanley-rate", params.get("metastanley_rate"))
 
     proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:

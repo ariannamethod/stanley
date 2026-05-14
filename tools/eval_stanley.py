@@ -109,6 +109,9 @@ def parse_stats(stdout: str) -> dict[str, str]:
         "temp_scale": r"temp_scale=([0-9.]+)",
         "len_scale": r"len_scale=([0-9.]+)",
         "graze_rate": r"graze_rate=([0-9.]+)",
+        "metastanley": r"metastanley=(on|off)",
+        "metastanley_rate": r"metastanley=(?:on|off) rate=([0-9.]+)",
+        "inner_ticks": r"inner_ticks=(\d+)",
     }
     for key, pattern in patterns.items():
         match = re.search(pattern, stdout)
@@ -172,6 +175,10 @@ def run_stanley(args: argparse.Namespace, prompts: list[str]) -> str:
         cmd.extend(["--ring-len-scale", str(args.ring_len_scale)])
     if args.graze_rate is not None:
         cmd.extend(["--graze-rate", str(args.graze_rate)])
+    if args.metastanley:
+        cmd.append("--metastanley")
+    if args.metastanley_rate is not None:
+        cmd.extend(["--metastanley-rate", str(args.metastanley_rate)])
     if args.seed is not None:
         cmd.extend(["--seed", str(args.seed)])
 
@@ -224,6 +231,8 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
         "ring_temp_scale": args.ring_temp_scale,
         "ring_len_scale": args.ring_len_scale,
         "graze_rate": args.graze_rate,
+        "metastanley": args.metastanley or None,
+        "metastanley_rate": args.metastanley_rate,
     }
     active_listening = {k: v for k, v in listening_args.items() if v is not None}
     if active_listening:
@@ -240,7 +249,7 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
     lines.append(f"- origin 5-gram echoes: `{origin_echo}`")
     lines.append(f"- avg spoken tokens: `{avg_tokens:.2f}`")
     lines.append(f"- avg glue ratio: `{avg_glue:.2f}`")
-    for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "pastures", "graze_vocab", "profiled", "speak_ratio", "coherence_floor", "max_rings", "temp_scale", "len_scale", "graze_rate"]:
+    for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "pastures", "graze_vocab", "profiled", "speak_ratio", "coherence_floor", "max_rings", "temp_scale", "len_scale", "graze_rate", "metastanley", "metastanley_rate", "inner_ticks"]:
         if key in stats:
             lines.append(f"- {key}: `{stats[key]}`")
     lines.append("")
@@ -298,6 +307,8 @@ def main() -> int:
     parser.add_argument("--ring-temp-scale", type=float, help="scale all private-ring temperatures")
     parser.add_argument("--ring-len-scale", type=float, help="scale all private-ring lengths")
     parser.add_argument("--graze-rate", type=float, help="probability of tail arbitration when grazing is hungry")
+    parser.add_argument("--metastanley", action="store_true", help="enable private MetaStanley phrase lane")
+    parser.add_argument("--metastanley-rate", type=float, help="private MetaStanley phrase chance per spoken tick")
     parser.add_argument("--seed", type=int, help="deterministic Stanley RNG seed")
     parser.add_argument("--out", help="write markdown report to path")
     parser.add_argument("--fail-on-collapse", action="store_true", help="exit nonzero if any reply collapses")
