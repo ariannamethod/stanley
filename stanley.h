@@ -147,6 +147,9 @@ typedef struct {
     float ring_temp_scale;                       /* listening condition: scales private-ring temperature */
     float ring_len_scale;                        /* listening condition: scales private-ring length */
     float graze_rate;                            /* listening condition: probability of tail arbitration */
+    int   somatic_temp_enabled;                  /* body tension modulates ring temperature */
+    float somatic_temp_strength;                 /* multiplier strength for body -> temperature */
+    float last_temp_factor;                      /* last effective body temperature factor */
     int   metastanley_enabled;                   /* private inner phrase lane */
     float metastanley_rate;                      /* chance to run after a spoken tick */
 

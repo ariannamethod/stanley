@@ -22,7 +22,8 @@ static void usage(const char *p) {
     printf("stanley %s — weightless organism.\n", STANLEY_VERSION);
     printf("usage: %s [--origin PATH] [--no-origin] [--graze GGUF]... [--graze-profile TXT]...\n", p);
     printf("          [--coherence-floor F] [--max-rings N] [--ring-temp-scale F]\n");
-    printf("          [--ring-len-scale F] [--graze-rate F] [--metastanley]\n");
+    printf("          [--ring-len-scale F] [--graze-rate F] [--somatic-temp]\n");
+    printf("          [--somatic-temp-strength F] [--metastanley]\n");
     printf("          [--metastanley-rate F] [--seed N] [--shimmer] [--help]\n");
 }
 
@@ -49,6 +50,8 @@ int main(int argc, char **argv) {
     float ring_temp_scale = 1.0f;
     float ring_len_scale = 1.0f;
     float graze_rate = 0.25f;
+    int somatic_temp_enabled = 0;
+    float somatic_temp_strength = 0.35f;
     int metastanley_enabled = 0;
     float metastanley_rate = 0.35f;
     for (int i = 0; i < STANLEY_MAX_GRAZES; i++) graze_profiles[i] = NULL;
@@ -75,6 +78,8 @@ int main(int argc, char **argv) {
             }
         }
         else if (!strcmp(argv[i], "--shimmer")) shimmer = 1;
+        else if (!strcmp(argv[i], "--somatic-temp")) somatic_temp_enabled = 1;
+        else if (!strcmp(argv[i], "--no-somatic-temp")) somatic_temp_enabled = 0;
         else if (!strcmp(argv[i], "--metastanley")) metastanley_enabled = 1;
         else if (!strcmp(argv[i], "--no-metastanley")) metastanley_enabled = 0;
         else if (!strcmp(argv[i], "--coherence-floor") && i + 1 < argc) {
@@ -92,6 +97,10 @@ int main(int argc, char **argv) {
         }
         else if (!strcmp(argv[i], "--graze-rate") && i + 1 < argc) {
             graze_rate = strtof(argv[++i], NULL);
+        }
+        else if (!strcmp(argv[i], "--somatic-temp-strength") && i + 1 < argc) {
+            somatic_temp_strength = strtof(argv[++i], NULL);
+            somatic_temp_enabled = 1;
         }
         else if (!strcmp(argv[i], "--metastanley-rate") && i + 1 < argc) {
             metastanley_rate = strtof(argv[++i], NULL);
@@ -116,6 +125,8 @@ int main(int argc, char **argv) {
     s.ring_temp_scale = clampf(ring_temp_scale, 0.2f, 2.0f);
     s.ring_len_scale = clampf(ring_len_scale, 0.25f, 3.0f);
     s.graze_rate = clampf(graze_rate, 0.0f, 1.0f);
+    s.somatic_temp_enabled = somatic_temp_enabled;
+    s.somatic_temp_strength = clampf(somatic_temp_strength, 0.0f, 1.0f);
     s.metastanley_enabled = metastanley_enabled;
     s.metastanley_rate = clampf(metastanley_rate, 0.0f, 1.0f);
     for (int i = 0; i < n_graze_paths; i++) {

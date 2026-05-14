@@ -599,7 +599,8 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
     if (level < 0 || level >= STANLEY_MAX_RINGS) return -1;
     r->level = level;
     r->name  = RING_CFG[level].name;
-    r->temperature = st_clamp(RING_CFG[level].T * s->ring_temp_scale, 0.15f, 3.0f);
+    float body_factor = s->somatic_temp_enabled ? s->last_temp_factor : 1.0f;
+    r->temperature = st_clamp(RING_CFG[level].T * s->ring_temp_scale * body_factor, 0.15f, 3.0f);
     r->length = (int)roundf((float)RING_CFG[level].len * s->ring_len_scale);
     if (r->length < 3) r->length = 3;
     if (r->length > STANLEY_RING_MAX_LEN) r->length = STANLEY_RING_MAX_LEN;
@@ -682,6 +683,20 @@ int stanley_overthink(Stanley *s, st_pulse p, const char *input, st_ring *rings)
     /* thinking raises overflow chamber */
     s->body.act[2] = st_clamp(s->body.act[2] + 0.03f * (float)n, 0, 1);
     return n;
+}
+
+static float stanley_somatic_temp_factor(const Stanley *s) {
+    if (!s || !s->somatic_temp_enabled) return 1.0f;
+    float calm  = s->body.act[0];
+    float spike = s->body.act[1];
+    float over  = s->body.act[2];
+    float tired = s->body.act[3];
+
+    /* Dario-style body temperature: tension opens the state space, tiredness
+     * and calm narrow it. This changes the listening condition, not the seed. */
+    float drive = 0.75f * spike + 0.65f * over - 0.35f * calm - 0.20f * tired;
+    float factor = 1.0f + s->somatic_temp_strength * drive;
+    return st_clamp(factor, 0.65f, 1.55f);
 }
 
 /* ============================================================
@@ -1453,6 +1468,7 @@ char *stanley_tick(Stanley *s, const char *input) {
     st_pulse p = stanley_pulse(s, input);
     chambers_inject(&s->body, p);
     chambers_step(&s->body, 0.2f);
+    s->last_temp_factor = stanley_somatic_temp_factor(s);
 
     if (stanley_refuses(s, p)) {
         pthread_mutex_lock(&s->mtx);
@@ -1564,6 +1580,9 @@ int stanley_init(Stanley *s, const char *origin_path) {
     s->ring_temp_scale          = 1.0f;
     s->ring_len_scale           = 1.0f;
     s->graze_rate               = 0.25f;
+    s->somatic_temp_enabled     = 0;
+    s->somatic_temp_strength    = 0.35f;
+    s->last_temp_factor         = 1.0f;
     s->metastanley_enabled      = 0;
     s->metastanley_rate         = 0.35f;
     s->last_input_ts            = time(NULL);
@@ -1630,6 +1649,10 @@ void stanley_repl(Stanley *s) {
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
             printf("  listening: max_rings=%d temp_scale=%.3f len_scale=%.3f graze_rate=%.3f\n",
                    s->max_rings, s->ring_temp_scale, s->ring_len_scale, s->graze_rate);
+            printf("  somatic_temp: %s strength=%.3f factor=%.3f\n",
+                   s->somatic_temp_enabled ? "on" : "off",
+                   s->somatic_temp_strength,
+                   s->last_temp_factor);
             printf("  inner: metastanley=%s rate=%.3f inner_ticks=%lld\n",
                    s->metastanley_enabled ? "on" : "off",
                    s->metastanley_rate,

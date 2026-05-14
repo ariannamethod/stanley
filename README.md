@@ -182,15 +182,22 @@ trained:
 
 ```bash
 ./stanley --coherence-floor 0.35 --ring-temp-scale 1.15 --ring-len-scale 1.2 --max-rings 5 --seed 42069
+./stanley --somatic-temp --somatic-temp-strength 0.5
 ./stanley --metastanley --metastanley-rate 0.7
 python3 tools/sweep_stanley.py
 ```
 
 The sweep compares silence, collapse, glue, origin echo, and spoken-token
 length across baseline, strict/permissive silence, cold/hot rings, short/long
-rings, single-ring, deep-hot, and eager-graze cells. This is the measurement
-surface for porting the CoA/LoRagrad line into Stanley: adapter gravity should
-be trained from cells that change trajectory without raising collapse.
+rings, single-ring, deep-hot, eager-graze, somatic-temperature, and
+MetaStanley cells. This is the measurement surface for porting the
+CoA/LoRagrad line into Stanley: adapter gravity should be trained from cells
+that change trajectory without raising collapse.
+
+Somatic temperature is Stanley's local version of Dario's chamber/velocity τ:
+when `--somatic-temp` is enabled, spike and overflow heat the private rings,
+while calm and tiredness narrow them. The prompt still does not seed output;
+the body changes the listening condition.
 
 LoRagrad already has the right immune vocabulary: `PASS / WEAKEN / FREEZE /
 SCAR / DARK / SILENCE`. In Stanley it belongs in the gravity-adapter layer,
