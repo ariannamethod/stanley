@@ -413,10 +413,22 @@ static int is_glue_word(const char *w) {
     return 0;
 }
 
+#define STANLEY_REPEAT_WINDOW 48
+
+static int ring_recent_bigram(const int *a, const int *b, int n, int prev, int cand) {
+    if (!a || !b || n <= 0 || prev < 0 || cand < 0) return 0;
+    for (int i = 0; i < n; i++) {
+        if (a[i] == prev && b[i] == cand) return 1;
+    }
+    return 0;
+}
+
 /* Sample next token given previous token id, with temperature T.
  * Penalizes recent self-repeats so Stanley doesn't get stuck chewing the
  * same word forever. Returns vocab index or -1 if cooccur row empty. */
-static int sample_next(const st_cooccur *co, int prev, float T, const int *recent, int n_recent) {
+static int sample_next(const st_cooccur *co, int prev, float T,
+                       const int *recent, int n_recent,
+                       const int *pair_a, const int *pair_b, int n_pairs) {
     if (prev < 0 || prev >= co->n_vocab) return -1;
     const float *row = co->w + (size_t)prev * co->capacity;
     /* softmax over row with temperature, restricted to populated vocab */
@@ -429,6 +441,7 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
         for (int k = 0; k < n_recent; k++) {
             if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
+        if (ring_recent_bigram(pair_a, pair_b, n_pairs, prev, j)) penalty += 12.0f;
         float v = row[j] / T - penalty;
         if (v > maxv) maxv = v;
     }
@@ -441,6 +454,7 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
         for (int k = 0; k < n_recent; k++) {
             if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
+        if (ring_recent_bigram(pair_a, pair_b, n_pairs, prev, j)) penalty += 12.0f;
         sum += expf(row[j] / T - penalty - maxv);
     }
     if (sum <= 0) return -1;
@@ -452,6 +466,7 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
         for (int k = 0; k < n_recent; k++) {
             if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
+        if (ring_recent_bigram(pair_a, pair_b, n_pairs, prev, j)) penalty += 12.0f;
         acc += expf(row[j] / T - penalty - maxv);
         if (acc >= r) return j;
     }
@@ -638,6 +653,9 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
     float resonance_sum = 0; int resonance_n = 0;
     int recent_ids[6] = {-1,-1,-1,-1,-1,-1};
     int n_recent = 0;
+    int pair_a[STANLEY_REPEAT_WINDOW];
+    int pair_b[STANLEY_REPEAT_WINDOW];
+    int n_pairs = 0;
 
     /* simple trigram tracker for meta_patterns */
     uint32_t tri[3] = {0,0,0};
@@ -672,8 +690,19 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
             }
         }
 
-        int nxt = sample_next(&s->co, prev, r->temperature, recent_ids, n_recent);
+        int nxt = sample_next(&s->co, prev, r->temperature, recent_ids, n_recent,
+                              pair_a, pair_b, n_pairs);
         if (nxt < 0) break;
+        if (n_pairs < STANLEY_REPEAT_WINDOW) {
+            pair_a[n_pairs] = prev;
+            pair_b[n_pairs] = nxt;
+            n_pairs++;
+        } else {
+            memmove(pair_a, pair_a + 1, (size_t)((STANLEY_REPEAT_WINDOW - 1) * sizeof(int)));
+            memmove(pair_b, pair_b + 1, (size_t)((STANLEY_REPEAT_WINDOW - 1) * sizeof(int)));
+            pair_a[STANLEY_REPEAT_WINDOW - 1] = prev;
+            pair_b[STANLEY_REPEAT_WINDOW - 1] = nxt;
+        }
         prev = nxt;
     }
     out[written] = 0;

@@ -29,6 +29,7 @@ SUMMARY_KEYS = [
     "spoken",
     "silent",
     "collapsed replies",
+    "repeated bigrams",
     "origin 5-gram echoes",
     "avg spoken tokens",
     "avg glue ratio",
@@ -127,7 +128,7 @@ def render_index(args: argparse.Namespace, rows: list[tuple[str, dict[str, objec
     lines.append("")
     lines.append("## Reading")
     lines.append("")
-    lines.append("Compare cells by silence, collapse, glue, origin echo, and spoken-token length.")
+    lines.append("Compare cells by silence, collapse, repeated bigrams, glue, origin echo, and spoken-token length.")
     lines.append("A useful Stanley adapter experiment should start from a cell that changes trajectory without raising collapse.")
     lines.append("")
     return "\n".join(lines)

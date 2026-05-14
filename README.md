@@ -188,8 +188,8 @@ python3 tools/sweep_stanley.py
 ```
 
 The sweep compares silence, collapse, glue, origin echo, and spoken-token
-length across baseline, strict/permissive silence, cold/hot rings, short/long
-rings, single-ring, deep-hot, eager-graze, somatic-temperature, and
+length, plus repeated bigrams, across baseline, strict/permissive silence,
+cold/hot rings, short/long rings, single-ring, deep-hot, eager-graze, somatic-temperature, and
 MetaStanley cells. This is the measurement surface for porting the
 CoA/LoRagrad line into Stanley: adapter gravity should be trained from cells
 that change trajectory without raising collapse.
@@ -401,6 +401,7 @@ A few things worth noticing in this raw run:
 - **somatic temperature** — `--somatic-temp` lets chamber tension modulate private-ring temperature. Spike/overflow widen listening; calm/tired narrow it.
 - **MetaStanley private lane** — `--metastanley` lets deep rings or internal shards feed back as invisible `M` shards. `/inner` exposes the last private phrase for debugging.
 - **scar lane** — dream turns clustered refusals into `S` shards. `scar_pressure` bends future refusal, emit, and grazing decisions without becoming text.
+- **within-ring bigram guard** — borrowed from NeoLeo step 42f: a word pair already emitted inside the current private ring gets a hard sampling penalty, reducing local loops without forbidding live recurrence across turns.
 
 71 tests across 6 suites are passing: core, graze, maturity, shimmer, refused,
 and integration. No new runtime dependencies. Still pure C, libc + libm +

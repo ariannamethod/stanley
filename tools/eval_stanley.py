@@ -66,6 +66,18 @@ def glue_ratio(toks: list[str]) -> float:
     return sum(1 for tok in toks if tok in GLUE or len(tok) <= 2) / len(toks)
 
 
+def repeated_bigram_count(toks: list[str]) -> int:
+    seen: set[tuple[str, str]] = set()
+    repeats = 0
+    for i in range(len(toks) - 1):
+        pair = (toks[i], toks[i + 1])
+        if pair in seen:
+            repeats += 1
+        else:
+            seen.add(pair)
+    return repeats
+
+
 def origin_ngrams(origin_text: str, n: int = 5) -> set[tuple[str, ...]]:
     toks = words(origin_text)
     return {tuple(toks[i:i + n]) for i in range(max(0, len(toks) - n + 1))}
@@ -133,6 +145,7 @@ def classify_reply(reply: str, spans: set[tuple[str, ...]]) -> dict[str, object]
             "dominant_ratio": 0.0,
             "glue_ratio": 0.0,
             "tail_unique": 0,
+            "repeated_bigrams": 0,
             "collapsed": False,
             "origin_span": False,
         }
@@ -141,12 +154,15 @@ def classify_reply(reply: str, spans: set[tuple[str, ...]]) -> dict[str, object]
     dom = dominant_ratio(toks)
     glue = glue_ratio(toks)
     tail = tail_unique(toks)
+    repeats = repeated_bigram_count(toks)
     collapsed = False
     if len(toks) >= 8 and dom > 0.70:
         collapsed = True
     if len(toks) >= 12 and glue > 0.62:
         collapsed = True
     if len(toks) >= 10 and tail <= 3:
+        collapsed = True
+    if len(toks) >= 12 and repeats >= 3:
         collapsed = True
 
     return {
@@ -155,6 +171,7 @@ def classify_reply(reply: str, spans: set[tuple[str, ...]]) -> dict[str, object]
         "dominant_ratio": dom,
         "glue_ratio": glue,
         "tail_unique": tail,
+        "repeated_bigrams": repeats,
         "collapsed": collapsed,
         "origin_span": has_origin_span(reply, spans),
     }
@@ -223,6 +240,7 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
     token_counts = [int(row["tokens"]) for row in rows if not row["silent"]]
     avg_tokens = sum(token_counts) / len(token_counts) if token_counts else 0.0
     avg_glue = sum(float(row["glue_ratio"]) for row in rows if not row["silent"]) / spoken if spoken else 0.0
+    repeated_bigrams = sum(int(row["repeated_bigrams"]) for row in rows)
 
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines: list[str] = []
@@ -260,14 +278,15 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
     lines.append(f"- origin 5-gram echoes: `{origin_echo}`")
     lines.append(f"- avg spoken tokens: `{avg_tokens:.2f}`")
     lines.append(f"- avg glue ratio: `{avg_glue:.2f}`")
+    lines.append(f"- repeated bigrams: `{repeated_bigrams}`")
     for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "scars", "pastures", "graze_vocab", "profiled", "scar_pressure", "speak_ratio", "coherence_floor", "max_rings", "temp_scale", "len_scale", "graze_rate", "somatic_temp", "somatic_temp_strength", "temp_factor", "metastanley", "metastanley_rate", "inner_ticks"]:
         if key in stats:
             lines.append(f"- {key}: `{stats[key]}`")
     lines.append("")
     lines.append("## Transcript Metrics")
     lines.append("")
-    lines.append("| # | prompt | reply | tokens | dom | glue | tail_unique | flags |")
-    lines.append("|---:|---|---|---:|---:|---:|---:|---|")
+    lines.append("| # | prompt | reply | tokens | dom | glue | tail_unique | repeated_bigrams | flags |")
+    lines.append("|---:|---|---|---:|---:|---:|---:|---:|---|")
     for i, (prompt, reply, row) in enumerate(zip(prompts, prompt_replies, rows), 1):
         flags: list[str] = []
         if row["silent"]:
@@ -283,7 +302,7 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
         lines.append(
             f"| {i} | {safe_prompt} | {safe_reply} | {row['tokens']} | "
             f"{float(row['dominant_ratio']):.2f} | {float(row['glue_ratio']):.2f} | "
-            f"{row['tail_unique']} | {', '.join(flags) or '-'} |"
+            f"{row['tail_unique']} | {row['repeated_bigrams']} | {', '.join(flags) or '-'} |"
         )
     lines.append("")
     lines.append("## Raw Output")
