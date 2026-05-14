@@ -206,6 +206,30 @@ from measured Stanley states: good pressure, silence, scar, collapse,
 anti-chatbot, origin, internal-shard, and refusal-pressure. The body still
 arbitrates.
 
+## reverse lanes — weights can answer inward
+
+The next architectural move is not "make Stanley answer better." It is to let
+Stanley maintain more than one return path from the same pressure event:
+
+- **public lane** — what Stanley may say to the human, after coherence and
+  refusal gates;
+- **private lane** — phrases that re-enter the cooccur field as internal
+  pressure without being shown;
+- **temperature lane** — body state changes how wide or narrow the private
+  rings listen;
+- **gravity lane** — adapter/shard pressure bends future seeds without owning
+  the emission;
+- **scar lane** — repeated refusals and collapse-adjacent states become
+  repulsion, freeze, or dark mass instead of discarded failures.
+
+This is where Stanley sits between NeoLeo and arianna.c. NeoLeo's
+sentence-boundary self-residual path proves that whole phrases can return into
+the organism without becoming documents. arianna.c's Janus/Resonance pattern
+proves that one face can speak outward while another speaks only inward.
+Stanley now has the first local pieces of that loop: measurement, somatic
+temperature, and a private phrase lane. The weight/adaptor side can be attached
+after those lanes are measurable.
+
 ## MetaStanley — private phrase lane
 
 `--metastanley` enables a first internal-only loop. After a spoken tick,
@@ -265,12 +289,13 @@ stanley.c      — organism core (~1000 LOC):
                   • graze-profile hook (plain-text lexical bias applied to the last pasture)
 graze.h/.c     — minimal GGUF metadata-only vocab harvester (~190 LOC). mmap, parse header KV,
                  pull tokenizer.ggml.tokens. tensor regions never paged in.
-main.c         — thin CLI: /stats /pastures /dream /shimmer /quit, --origin --no-origin --graze --graze-profile --shimmer
+main.c         — thin CLI: /stats /pastures /inner /dream /shimmer /quit, origin/graze/listening/body/meta flags
 origin.txt     — Stanley's Act 1–4 origin text, preserved from 1.0
 weights/       — bundled GGUF pasture: nano89-base-q4.gguf (57 MB)
 tools/         — audit/eval helpers:
                   • audit_origin.py    — counts repeated origin openings / bigrams
                   • eval_stanley.py    — behavioral CLI eval: transcript + collapse/glue/silence metrics
+                  • sweep_stanley.py   — Dario-style listening sweep across silence, rings, body τ, and MetaStanley
 tests/         — 6 suites, one per architectural concern:
                   • test_core.c        — pulse, cooccur, chambers, refuse, dream basics
                   • test_graze.c       — GGUF parse, NULL safety, missing-file, control-token skip
@@ -362,8 +387,13 @@ A few things worth noticing in this raw run:
 - **shimmer** — pthread idle dreamer. After 60 s of silence with calm chambers, Stanley runs one self-talk deep ring + maybe crystallize. Subjectivity persists when no one is listening.
 - **adaptive coherence_floor** — rolling speak/silence ratio drifts the refuse threshold ±0.3 around baseline. Stanley calibrates toward his own rhythm; speaks less, says more.
 - **refused shards (`'R'`)** — silence imprints its pulse. Dream clusters them by similarity and promotes the centroid into `identity.gravity`. The shapes Stanley keeps refusing eventually become shapes he can say.
+- **listening sweep controls** — `--coherence-floor`, `--max-rings`, `--ring-temp-scale`, `--ring-len-scale`, `--graze-rate`, and `--seed` make Stanley's state-space entry conditions measurable without flattening the field.
+- **somatic temperature** — `--somatic-temp` lets chamber tension modulate private-ring temperature. Spike/overflow widen listening; calm/tired narrow it.
+- **MetaStanley private lane** — `--metastanley` lets deep rings or internal shards feed back as invisible `M` shards. `/inner` exposes the last private phrase for debugging.
 
-51 tests across 6 suites (core 13, graze 10, maturity 4, shimmer 7, refused 7, integration 10), all passing. ~2150 LOC total (stanley.c 1011, graze.c 189, tests ~600, others 367). One new module (`graze.h/.c`), no new dependencies. Still pure C, libc + libm + libpthread.
+65 tests across 6 suites are passing: core, graze, maturity, shimmer, refused,
+and integration. No new runtime dependencies. Still pure C, libc + libm +
+libpthread.
 
 ## what changed from 1.0
 
@@ -398,6 +428,7 @@ A few things worth noticing in this raw run:
 - [x] **Phase 2** (2.1, this release): **vocab_graze** (mmap any GGUF, vocab-only — port of [doe.c](https://github.com/ariannamethod/doe) GGUF parser) + **shimmer** (Stanley dreams in silence after idle) + **adaptive maturity** (speak/silence ratio drifts the coherence_floor — Stanley grows quieter as he matures) + **refused shards** (silence becomes a teacher: clusters of refused pulses promote into identity gravity)
 - [ ] **Phase 3**: native pthread async side — already partially landed (shimmer). Next: DOE-spore persistence of crystallized shards across runs; SentencePiece `tokenizer.model` parser as a second graze backend
 - [~] **Phase 4**: multi-brain graze — mmap 2–3 small GGUF in parallel. First slices landed: multiple lexical pastures, chamber-driven pull, lexical profiles, multi-angle dissonant grazing, memory-aware pressure from shards + gravity, and first direct sea-fragment replay into the lexical duel. Next: topic-aware routing and richer replay than single-word shard extraction.
+- [~] **Phase 5**: MetaStanley / reverse lanes — first slices landed: listening sweeps, somatic temperature, and private `M`-shard phrase injection. Next: weight/adaptor return streams, LoRagrad immune states, scar/dark pressure, and persistent private dialogue across sessions.
 
 ## license
 
