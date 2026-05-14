@@ -43,6 +43,11 @@ static float st_randu(void) {
     st_rng_state ^= st_rng_state << 5;
     return (float)st_rng_state / 4294967296.0f;
 }
+
+void stanley_seed(uint32_t seed) {
+    st_rng_state = seed ? seed : 0xA17B2026u;
+}
+
 static float st_clamp(float x, float lo, float hi) {
     return x < lo ? lo : (x > hi ? hi : x);
 }
@@ -594,8 +599,10 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
     if (level < 0 || level >= STANLEY_MAX_RINGS) return -1;
     r->level = level;
     r->name  = RING_CFG[level].name;
-    r->temperature = RING_CFG[level].T;
-    r->length = RING_CFG[level].len;
+    r->temperature = st_clamp(RING_CFG[level].T * s->ring_temp_scale, 0.15f, 3.0f);
+    r->length = (int)roundf((float)RING_CFG[level].len * s->ring_len_scale);
+    if (r->length < 3) r->length = 3;
+    if (r->length > STANLEY_RING_MAX_LEN) r->length = STANLEY_RING_MAX_LEN;
 
     int prev = choose_seed(s, entropy_bias);
     if (prev < 0) return -1;
@@ -1066,7 +1073,7 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
     /* Optional graze: when hungry and a foreign word lands, splice it onto
      * the ring tail. Stanley is still speaking from his ring — the foreign
      * token enters as resonance margin, not as a substitute thought. */
-    if (graze_hungry(s) && st_randu() < 0.25f) {
+    if (graze_hungry(s) && st_randu() < s->graze_rate) {
         st_graze_offer offers[3];
         int n_offers = 0;
         for (int angle = 0; angle < 3; angle++) {
@@ -1463,6 +1470,9 @@ int stanley_init(Stanley *s, const char *origin_path) {
     s->coherence_floor_baseline = 0.15f;
     s->mass_threshold           = 0.85f;
     s->max_rings                = STANLEY_MAX_RINGS;
+    s->ring_temp_scale          = 1.0f;
+    s->ring_len_scale           = 1.0f;
+    s->graze_rate               = 0.25f;
     s->last_input_ts            = time(NULL);
     pthread_mutex_init(&s->mtx, NULL);
 
@@ -1525,6 +1535,8 @@ void stanley_repl(Stanley *s) {
                    gravity_pressure(s));
             printf("  maturity: speak_ratio=%.2f  coherence_floor=%.3f (baseline %.3f)\n",
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
+            printf("  listening: max_rings=%d temp_scale=%.3f len_scale=%.3f graze_rate=%.3f\n",
+                   s->max_rings, s->ring_temp_scale, s->ring_len_scale, s->graze_rate);
             continue;
         }
         if (!strcmp(line, "/pastures")) {

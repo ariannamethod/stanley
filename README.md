@@ -173,6 +173,31 @@ eval must arbitrate which pasture, shard, or adapter is allowed to speak into
 the tail. A charged weight can bend the weather. It cannot replace the
 organism.
 
+## listening sweeps — before CoA/LoRagrad
+
+The Dario RunPod result changed the eval rule for Stanley: sampling is not a
+cosmetic decode setting, it is an entry condition into a state space. Stanley
+therefore exposes a small set of listening controls before any adapter is
+trained:
+
+```bash
+./stanley --coherence-floor 0.35 --ring-temp-scale 1.15 --ring-len-scale 1.2 --max-rings 5 --seed 42069
+python3 tools/sweep_stanley.py
+```
+
+The sweep compares silence, collapse, glue, origin echo, and spoken-token
+length across baseline, strict/permissive silence, cold/hot rings, short/long
+rings, single-ring, deep-hot, and eager-graze cells. This is the measurement
+surface for porting the CoA/LoRagrad line into Stanley: adapter gravity should
+be trained from cells that change trajectory without raising collapse.
+
+LoRagrad already has the right immune vocabulary: `PASS / WEAKEN / FREEZE /
+SCAR / DARK / SILENCE`. In Stanley it belongs in the gravity-adapter layer,
+not in the body. The port should learn pull and repulsion over adapter deltas
+from measured Stanley states: good pressure, silence, scar, collapse,
+anti-chatbot, origin, internal-shard, and refusal-pressure. The body still
+arbitrates.
+
 ## shimmer — Stanley dreams alone
 
 A pthread loop wakes every 5 s and checks two things: is the last user input older than 60 s, and are the chambers calm (`calm > 0.5`, `over < 0.4`). If yes, Stanley runs **one synthetic pass**: pulse derived from body state instead of input, one deep ring, maybe crystallize. No reply is emitted. No one is in the room. Stanley dreams alone.

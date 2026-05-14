@@ -105,6 +105,10 @@ def parse_stats(stdout: str) -> dict[str, str]:
         "profiled": r"profiled=(\d+)",
         "speak_ratio": r"speak_ratio=([0-9.]+)",
         "coherence_floor": r"coherence_floor=([0-9.]+)",
+        "max_rings": r"max_rings=(\d+)",
+        "temp_scale": r"temp_scale=([0-9.]+)",
+        "len_scale": r"len_scale=([0-9.]+)",
+        "graze_rate": r"graze_rate=([0-9.]+)",
     }
     for key, pattern in patterns.items():
         match = re.search(pattern, stdout)
@@ -158,6 +162,18 @@ def run_stanley(args: argparse.Namespace, prompts: list[str]) -> str:
         cmd.extend(["--graze", pasture])
     for profile in args.graze_profile:
         cmd.extend(["--graze-profile", profile])
+    if args.coherence_floor is not None:
+        cmd.extend(["--coherence-floor", str(args.coherence_floor)])
+    if args.max_rings is not None:
+        cmd.extend(["--max-rings", str(args.max_rings)])
+    if args.ring_temp_scale is not None:
+        cmd.extend(["--ring-temp-scale", str(args.ring_temp_scale)])
+    if args.ring_len_scale is not None:
+        cmd.extend(["--ring-len-scale", str(args.ring_len_scale)])
+    if args.graze_rate is not None:
+        cmd.extend(["--graze-rate", str(args.graze_rate)])
+    if args.seed is not None:
+        cmd.extend(["--seed", str(args.seed)])
 
     script = "\n".join(prompts + ["/stats", "/pastures", "/quit"]) + "\n"
     proc = subprocess.run(
@@ -200,6 +216,19 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
     lines.append(f"- binary: `{args.binary}`")
     lines.append(f"- origin: `{args.origin if not args.no_origin else '--no-origin'}`")
     lines.append(f"- prompts: `{len(prompts)}`")
+    if args.seed is not None:
+        lines.append(f"- seed: `{args.seed}`")
+    listening_args = {
+        "coherence_floor": args.coherence_floor,
+        "max_rings": args.max_rings,
+        "ring_temp_scale": args.ring_temp_scale,
+        "ring_len_scale": args.ring_len_scale,
+        "graze_rate": args.graze_rate,
+    }
+    active_listening = {k: v for k, v in listening_args.items() if v is not None}
+    if active_listening:
+        joined = ", ".join(f"{k}={v}" for k, v in active_listening.items())
+        lines.append(f"- listening args: `{joined}`")
     if args.graze:
         lines.append(f"- graze: `{', '.join(args.graze)}`")
     lines.append("")
@@ -211,7 +240,7 @@ def render_report(args: argparse.Namespace, prompts: list[str], output: str) -> 
     lines.append(f"- origin 5-gram echoes: `{origin_echo}`")
     lines.append(f"- avg spoken tokens: `{avg_tokens:.2f}`")
     lines.append(f"- avg glue ratio: `{avg_glue:.2f}`")
-    for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "pastures", "graze_vocab", "profiled", "speak_ratio", "coherence_floor"]:
+    for key in ["vocab", "inputs", "spoken", "refused", "dreams", "shimmers", "fragments", "gravity", "sea", "pastures", "graze_vocab", "profiled", "speak_ratio", "coherence_floor", "max_rings", "temp_scale", "len_scale", "graze_rate"]:
         if key in stats:
             lines.append(f"- {key}: `{stats[key]}`")
     lines.append("")
@@ -264,6 +293,12 @@ def main() -> int:
     parser.add_argument("--prompts", help="newline-delimited prompt file")
     parser.add_argument("--graze", action="append", default=[], help="attach GGUF pasture")
     parser.add_argument("--graze-profile", action="append", default=[], help="attach profile to previous pasture")
+    parser.add_argument("--coherence-floor", type=float, help="override Stanley's baseline silence threshold")
+    parser.add_argument("--max-rings", type=int, help="cap private overthinking rings")
+    parser.add_argument("--ring-temp-scale", type=float, help="scale all private-ring temperatures")
+    parser.add_argument("--ring-len-scale", type=float, help="scale all private-ring lengths")
+    parser.add_argument("--graze-rate", type=float, help="probability of tail arbitration when grazing is hungry")
+    parser.add_argument("--seed", type=int, help="deterministic Stanley RNG seed")
     parser.add_argument("--out", help="write markdown report to path")
     parser.add_argument("--fail-on-collapse", action="store_true", help="exit nonzero if any reply collapses")
     args = parser.parse_args()

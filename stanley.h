@@ -142,6 +142,9 @@ typedef struct {
     float coherence_floor_baseline;              /* anchor — adaptive drift can move ±0.3 around this */
     float mass_threshold;                        /* chamber overload -> dream */
     int   max_rings;                             /* overthinking cap */
+    float ring_temp_scale;                       /* listening condition: scales private-ring temperature */
+    float ring_len_scale;                        /* listening condition: scales private-ring length */
+    float graze_rate;                            /* listening condition: probability of tail arbitration */
 
     /* stats */
     int64_t n_inputs;
@@ -181,6 +184,7 @@ typedef struct {
  */
 int  stanley_init(Stanley *s, const char *origin_path);
 void stanley_free(Stanley *s);
+void stanley_seed(uint32_t seed);
 
 /* ============================================================
  * CORE INTERACTION — one tick of life
