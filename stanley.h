@@ -36,6 +36,7 @@ extern "C" {
 #define STANLEY_SHIMMER_TICK_S 5        /* shimmer wakeup cadence (s) */
 #define STANLEY_MAX_GRAZES    8         /* max external lexical pastures */
 #define STANLEY_PRIMARY_GRAZE_BIAS 0.70f/* favor the first pasture as the main lexical field */
+#define STANLEY_META_PHRASE_CHARS 512    /* last private MetaStanley phrase */
 
 /* ============================================================
  * TYPES
@@ -70,14 +71,16 @@ typedef struct {
 /* Shard — one memory atom in the sea.
  *   'E' external — happened (user interaction).
  *   'I' internal — Stanley's own reflection that crystallized from a deep ring.
+ *   'M' meta     — MetaStanley private phrase, invisible unless inspected.
+ *   'S' scar     — clustered refusal shape; repulsive memory, no public text.
  *   'R' refused  — a moment Stanley chose silence; pulse imprinted for dream replay.
  */
 typedef struct {
-    char    kind;                                /* 'E' / 'I' / 'R' */
-    char   *content;                             /* owned; may be NULL for 'R' */
+    char    kind;                                /* 'E' / 'I' / 'M' / 'S' / 'R' */
+    char   *content;                             /* owned; may be NULL for 'R'/'S' */
     float   resonance;
     int64_t created_step;                        /* monotonic clock */
-    st_pulse pulse;                              /* the field state at write time (used by 'R') */
+    st_pulse pulse;                              /* field state at write time (used by 'R'/'S') */
 } st_shard;
 
 typedef struct {
@@ -142,6 +145,14 @@ typedef struct {
     float coherence_floor_baseline;              /* anchor — adaptive drift can move ±0.3 around this */
     float mass_threshold;                        /* chamber overload -> dream */
     int   max_rings;                             /* overthinking cap */
+    float ring_temp_scale;                       /* listening condition: scales private-ring temperature */
+    float ring_len_scale;                        /* listening condition: scales private-ring length */
+    float graze_rate;                            /* listening condition: probability of tail arbitration */
+    int   somatic_temp_enabled;                  /* body tension modulates ring temperature */
+    float somatic_temp_strength;                 /* multiplier strength for body -> temperature */
+    float last_temp_factor;                      /* last effective body temperature factor */
+    int   metastanley_enabled;                   /* private inner phrase lane */
+    float metastanley_rate;                      /* chance to run after a spoken tick */
 
     /* stats */
     int64_t n_inputs;
@@ -149,6 +160,9 @@ typedef struct {
     int64_t n_refused;
     int64_t n_dreams;
     int64_t n_shimmers;                          /* unprompted internal passes */
+    int64_t n_inner;                             /* private MetaStanley phrase ticks */
+    int64_t n_scars;                             /* clustered refusal scars */
+    char    last_inner[STANLEY_META_PHRASE_CHARS];
 
     /* adaptive maturity — rolling window of speak/silence outcomes */
     uint8_t speak_window[STANLEY_SPEAK_WINDOW];
@@ -181,6 +195,7 @@ typedef struct {
  */
 int  stanley_init(Stanley *s, const char *origin_path);
 void stanley_free(Stanley *s);
+void stanley_seed(uint32_t seed);
 
 /* ============================================================
  * CORE INTERACTION — one tick of life

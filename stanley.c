@@ -43,6 +43,11 @@ static float st_randu(void) {
     st_rng_state ^= st_rng_state << 5;
     return (float)st_rng_state / 4294967296.0f;
 }
+
+void stanley_seed(uint32_t seed) {
+    st_rng_state = seed ? seed : 0xA17B2026u;
+}
+
 static float st_clamp(float x, float lo, float hi) {
     return x < lo ? lo : (x > hi ? hi : x);
 }
@@ -330,6 +335,26 @@ st_pulse stanley_pulse(const Stanley *s, const char *input) {
  * SUBJECTIVITY — refuse gate
  * ============================================================ */
 
+static float pulse_similarity(st_pulse a, st_pulse b);
+
+static float scar_pressure_for_pulse(const Stanley *s, st_pulse p, int window) {
+    if (!s || window <= 0 || s->sea.n <= 0) return 0.0f;
+    int seen = 0;
+    float pressure = 0.0f;
+    for (int off = 0; off < s->sea.n && seen < window; off++) {
+        int idx = s->sea.n - 1 - off;
+        if (idx < 0) break;
+        const st_shard *sh = &s->sea.shards[idx];
+        if (sh->kind != 'S') continue;
+        float sim = pulse_similarity(p, sh->pulse);
+        float recency = 1.0f - 0.10f * (float)seen;
+        if (recency < 0.25f) recency = 0.25f;
+        pressure += recency * sim * (0.4f + sh->resonance);
+        seen++;
+    }
+    return st_clamp(pressure, 0.0f, 2.0f);
+}
+
 int stanley_refuses(const Stanley *s, st_pulse p) {
     /* Refuse conditions (ANY of):
      *  1. Pulse arousal is very high AND chambers already overloaded —
@@ -342,12 +367,15 @@ int stanley_refuses(const Stanley *s, st_pulse p) {
     float calm = s->body.act[0];
     float over = s->body.act[2];
     float margin = calm - over;                     /* positive = coherent */
+    float scar = scar_pressure_for_pulse(s, p, 8);
+    float floor = st_clamp(s->coherence_floor + 0.08f * scar, 0.0f, 1.0f);
 
     if (p.arousal > 0.7f && over > 0.7f) return 1;
     if (p.novelty > 0.85f && s->me.n_fragments == 0) return 1;
-    if (margin < s->coherence_floor) {
+    if (scar > 0.85f && p.arousal > 0.55f && over > 0.45f) return 1;
+    if (margin < floor) {
         /* probabilistic silence */
-        if (st_randu() < 0.5f * (s->coherence_floor - margin + 0.1f)) return 1;
+        if (st_randu() < 0.5f * (floor - margin + 0.1f)) return 1;
     }
     return 0;
 }
@@ -385,10 +413,22 @@ static int is_glue_word(const char *w) {
     return 0;
 }
 
+#define STANLEY_REPEAT_WINDOW 48
+
+static int ring_recent_bigram(const int *a, const int *b, int n, int prev, int cand) {
+    if (!a || !b || n <= 0 || prev < 0 || cand < 0) return 0;
+    for (int i = 0; i < n; i++) {
+        if (a[i] == prev && b[i] == cand) return 1;
+    }
+    return 0;
+}
+
 /* Sample next token given previous token id, with temperature T.
  * Penalizes recent self-repeats so Stanley doesn't get stuck chewing the
  * same word forever. Returns vocab index or -1 if cooccur row empty. */
-static int sample_next(const st_cooccur *co, int prev, float T, const int *recent, int n_recent) {
+static int sample_next(const st_cooccur *co, int prev, float T,
+                       const int *recent, int n_recent,
+                       const int *pair_a, const int *pair_b, int n_pairs) {
     if (prev < 0 || prev >= co->n_vocab) return -1;
     const float *row = co->w + (size_t)prev * co->capacity;
     /* softmax over row with temperature, restricted to populated vocab */
@@ -401,6 +441,7 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
         for (int k = 0; k < n_recent; k++) {
             if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
+        if (ring_recent_bigram(pair_a, pair_b, n_pairs, prev, j)) penalty += 12.0f;
         float v = row[j] / T - penalty;
         if (v > maxv) maxv = v;
     }
@@ -413,6 +454,7 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
         for (int k = 0; k < n_recent; k++) {
             if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
+        if (ring_recent_bigram(pair_a, pair_b, n_pairs, prev, j)) penalty += 12.0f;
         sum += expf(row[j] / T - penalty - maxv);
     }
     if (sum <= 0) return -1;
@@ -424,6 +466,7 @@ static int sample_next(const st_cooccur *co, int prev, float T, const int *recen
         for (int k = 0; k < n_recent; k++) {
             if (recent[k] == j) penalty += (k == n_recent - 1) ? 1.8f : 0.75f;
         }
+        if (ring_recent_bigram(pair_a, pair_b, n_pairs, prev, j)) penalty += 12.0f;
         acc += expf(row[j] / T - penalty - maxv);
         if (acc >= r) return j;
     }
@@ -594,8 +637,11 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
     if (level < 0 || level >= STANLEY_MAX_RINGS) return -1;
     r->level = level;
     r->name  = RING_CFG[level].name;
-    r->temperature = RING_CFG[level].T;
-    r->length = RING_CFG[level].len;
+    float body_factor = s->somatic_temp_enabled ? s->last_temp_factor : 1.0f;
+    r->temperature = st_clamp(RING_CFG[level].T * s->ring_temp_scale * body_factor, 0.15f, 3.0f);
+    r->length = (int)roundf((float)RING_CFG[level].len * s->ring_len_scale);
+    if (r->length < 3) r->length = 3;
+    if (r->length > STANLEY_RING_MAX_LEN) r->length = STANLEY_RING_MAX_LEN;
 
     int prev = choose_seed(s, entropy_bias);
     if (prev < 0) return -1;
@@ -607,6 +653,9 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
     float resonance_sum = 0; int resonance_n = 0;
     int recent_ids[6] = {-1,-1,-1,-1,-1,-1};
     int n_recent = 0;
+    int pair_a[STANLEY_REPEAT_WINDOW];
+    int pair_b[STANLEY_REPEAT_WINDOW];
+    int n_pairs = 0;
 
     /* simple trigram tracker for meta_patterns */
     uint32_t tri[3] = {0,0,0};
@@ -641,8 +690,19 @@ static int ring_generate(Stanley *s, st_ring *r, int level, float entropy_bias) 
             }
         }
 
-        int nxt = sample_next(&s->co, prev, r->temperature, recent_ids, n_recent);
+        int nxt = sample_next(&s->co, prev, r->temperature, recent_ids, n_recent,
+                              pair_a, pair_b, n_pairs);
         if (nxt < 0) break;
+        if (n_pairs < STANLEY_REPEAT_WINDOW) {
+            pair_a[n_pairs] = prev;
+            pair_b[n_pairs] = nxt;
+            n_pairs++;
+        } else {
+            memmove(pair_a, pair_a + 1, (size_t)((STANLEY_REPEAT_WINDOW - 1) * sizeof(int)));
+            memmove(pair_b, pair_b + 1, (size_t)((STANLEY_REPEAT_WINDOW - 1) * sizeof(int)));
+            pair_a[STANLEY_REPEAT_WINDOW - 1] = prev;
+            pair_b[STANLEY_REPEAT_WINDOW - 1] = nxt;
+        }
         prev = nxt;
     }
     out[written] = 0;
@@ -675,6 +735,20 @@ int stanley_overthink(Stanley *s, st_pulse p, const char *input, st_ring *rings)
     /* thinking raises overflow chamber */
     s->body.act[2] = st_clamp(s->body.act[2] + 0.03f * (float)n, 0, 1);
     return n;
+}
+
+static float stanley_somatic_temp_factor(const Stanley *s) {
+    if (!s || !s->somatic_temp_enabled) return 1.0f;
+    float calm  = s->body.act[0];
+    float spike = s->body.act[1];
+    float over  = s->body.act[2];
+    float tired = s->body.act[3];
+
+    /* Dario-style body temperature: tension opens the state space, tiredness
+     * and calm narrow it. This changes the listening condition, not the seed. */
+    float drive = 0.75f * spike + 0.65f * over - 0.35f * calm - 0.20f * tired;
+    float factor = 1.0f + s->somatic_temp_strength * drive;
+    return st_clamp(factor, 0.65f, 1.55f);
 }
 
 /* ============================================================
@@ -729,7 +803,13 @@ static float sea_recent_charge(const Stanley *s, char kind, int window) {
         if (sh->kind != kind) continue;
         float w = 1.0f - 0.08f * (float)seen;
         if (w < 0.2f) w = 0.2f;
-        charge += w * (kind == 'I' ? sh->resonance + 0.2f : sh->pulse.arousal + 0.3f * sh->pulse.entropy);
+        if (kind == 'I') {
+            charge += w * (sh->resonance + 0.2f);
+        } else if (kind == 'S') {
+            charge += w * (sh->resonance + 0.35f * sh->pulse.arousal + 0.20f * sh->pulse.entropy);
+        } else {
+            charge += w * (sh->pulse.arousal + 0.3f * sh->pulse.entropy);
+        }
         seen++;
     }
     return charge;
@@ -851,6 +931,7 @@ static float graze_memory_pull(const Stanley *s, int idx, int angle_idx, const c
     if (!s || idx < 0 || idx >= s->n_grazes) return 0.0f;
     float internal = sea_recent_charge(s, 'I', 6);
     float refused  = sea_recent_charge(s, 'R', 6);
+    float scar     = sea_recent_charge(s, 'S', 6);
     float gravity  = gravity_pressure(s);
     int internal_echo = sea_word_echoes(s, 'I', word, 8);
 
@@ -867,12 +948,12 @@ static float graze_memory_pull(const Stanley *s, int idx, int angle_idx, const c
             else          score += 0.02f * internal;
             break;
         case 1: /* wound leans toward profiled/peripheral fields when refusals pile up */
-            if (idx > 0) score += 0.08f * refused + 0.03f * gravity;
-            else         score += 0.02f * refused;
+            if (idx > 0) score += 0.08f * refused + 0.06f * scar + 0.03f * gravity;
+            else         score += 0.02f * refused + 0.02f * scar;
             break;
         default: /* contradiction is where gravity starts bending the foreign */
-            if (idx > 0) score += 0.06f * gravity + 0.05f * refused;
-            else         score += 0.03f * gravity;
+            if (idx > 0) score += 0.06f * gravity + 0.05f * refused + 0.05f * scar;
+            else         score += 0.03f * gravity + 0.02f * scar;
             break;
     }
     return score;
@@ -1047,14 +1128,17 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
     if (n_rings <= 0) return NULL;
     int best = -1;
     float best_score = -1e30f;
+    float scar = sea_recent_charge(s, 'S', 6);
     for (int i = 0; i < n_rings; i++) {
         float score = rings[i].resonance + 0.5f * (float)rings[i].meta_patterns;
+        if (rings[i].level <= 1) score -= 0.04f * scar;
+        else                    score -= 0.02f * scar;
         if (score > best_score) { best_score = score; best = i; }
     }
     if (best < 0) return NULL;
 
     /* silence threshold — if nothing is warm enough, don't speak. */
-    float min_score = 1.0f + 0.5f * s->coherence_floor;
+    float min_score = 1.0f + 0.5f * s->coherence_floor + 0.04f * scar;
     if (best_score < min_score) {
         s->n_refused++;
         return NULL;
@@ -1066,7 +1150,7 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
     /* Optional graze: when hungry and a foreign word lands, splice it onto
      * the ring tail. Stanley is still speaking from his ring — the foreign
      * token enters as resonance margin, not as a substitute thought. */
-    if (graze_hungry(s) && st_randu() < 0.25f) {
+    if (graze_hungry(s) && st_randu() < s->graze_rate) {
         st_graze_offer offers[3];
         int n_offers = 0;
         for (int angle = 0; angle < 3; angle++) {
@@ -1116,6 +1200,8 @@ char *stanley_emit(Stanley *s, const st_ring *rings, int n_rings) {
  * ============================================================ */
 
 typedef struct { Stanley *s; int *ids; int n; int cap; } acc_cb_ctx;
+static void sea_push(st_sea *sea, char kind, const char *text, float resonance, int64_t step);
+
 static void acc_cb(const char *w, int n, void *u) {
     acc_cb_ctx *c = (acc_cb_ctx*)u;
     if (c->n >= c->cap) return;
@@ -1131,6 +1217,23 @@ void stanley_accumulate(Stanley *s, const char *input, const char *output) {
     cooccur_feed(&s->co, ids, ctx.n);
     pthread_mutex_unlock(&s->mtx);
     s->n_inputs++;
+}
+
+static void stanley_absorb_private(Stanley *s, const char *text) {
+    if (!s || !text || !*text) return;
+    int ids[512]; acc_cb_ctx ctx = { s, ids, 0, 512 };
+    tokenize(text, acc_cb, &ctx);
+    if (ctx.n <= 0) return;
+
+    pthread_mutex_lock(&s->mtx);
+    cooccur_feed(&s->co, ids, ctx.n);
+    s->sea.step++;
+    sea_push(&s->sea, 'M', text, 0.5f, s->sea.step);
+    pthread_mutex_unlock(&s->mtx);
+
+    s->n_inner++;
+    strncpy(s->last_inner, text, sizeof(s->last_inner) - 1);
+    s->last_inner[sizeof(s->last_inner) - 1] = 0;
 }
 
 /* ============================================================
@@ -1171,6 +1274,15 @@ static void sea_record_refused(st_sea *sea, st_pulse pulse, int64_t step) {
     sea->shards[slot].pulse = pulse;
 }
 
+static void sea_record_scar(st_sea *sea, st_pulse pulse, float strength, int64_t step) {
+    int slot = sea_alloc_slot(sea);
+    sea->shards[slot].kind = 'S';
+    sea->shards[slot].content = NULL;
+    sea->shards[slot].resonance = strength;
+    sea->shards[slot].created_step = step;
+    sea->shards[slot].pulse = pulse;
+}
+
 /* Pulse similarity in [0,1]: simple inverse L1 over the four pulse axes. */
 static float pulse_similarity(st_pulse a, st_pulse b) {
     float d = fabsf(a.novelty - b.novelty)
@@ -1195,6 +1307,33 @@ static int sea_recent_internal_duplicate(const Stanley *s, const char *text, int
         if (strcmp(sh->content, text) == 0) return 1;
     }
     return 0;
+}
+
+static int phrase_take_words(const char *src, char *out, int cap, int max_words) {
+    if (!src || !out || cap <= 1 || max_words <= 0) return -1;
+    int written = 0;
+    int n_words = 0;
+    const char *p = src;
+    while (*p && n_words < max_words) {
+        while (*p && !is_word_char((unsigned char)*p)) p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && is_word_char((unsigned char)*p)) p++;
+        int n = (int)(p - start);
+        if (n <= 1) continue;
+        if (written > 0) {
+            if (written + 1 >= cap) break;
+            out[written++] = ' ';
+        }
+        if (written + n >= cap) n = cap - written - 1;
+        for (int i = 0; i < n; i++) {
+            out[written++] = (char)tolower((unsigned char)start[i]);
+        }
+        n_words++;
+        if (written >= cap - 1) break;
+    }
+    out[written] = 0;
+    return n_words > 0 ? 0 : -1;
 }
 
 static float ring_crystallize_pressure(const Stanley *s, const st_ring *r) {
@@ -1238,6 +1377,50 @@ void stanley_crystallize(Stanley *s, const st_ring *rings, int n_rings) {
     pthread_mutex_unlock(&s->mtx);
 }
 
+/* MetaStanley — private phrase lane.
+ *
+ * This is deliberately not public output and not a second chatbot. After a
+ * spoken tick, Stanley may let a phrase from a deep private ring or a recent
+ * internal shard flow back into the cooccur field as an invisible inner
+ * sentence. It is the first local analogue of Dario/NeoLeo sentence-boundary
+ * injection: the phrase changes future pressure without being shown to the
+ * human unless /inner is explicitly inspected. */
+static void stanley_metastanley_tick(Stanley *s, const st_ring *rings, int n_rings,
+                                     const char *public_reply) {
+    if (!s || !s->metastanley_enabled || n_rings <= 0) return;
+    if (st_randu() > s->metastanley_rate) return;
+
+    char phrase[STANLEY_META_PHRASE_CHARS];
+    phrase[0] = 0;
+
+    st_sea_offer sea_offer;
+    int has_sea = (sea_collect_offer(s, public_reply ? public_reply : "", &sea_offer) == 0);
+    if (has_sea && st_randu() < 0.45f) {
+        phrase_take_words(sea_offer.fragment, phrase, sizeof(phrase), 12);
+    }
+
+    if (!phrase[0]) {
+        int pick = -1;
+        float best = -1e30f;
+        for (int i = 0; i < n_rings; i++) {
+            if (!rings[i].content[0]) continue;
+            float depth = (float)(rings[i].level + 1);
+            float score = rings[i].resonance + 0.35f * depth + 0.25f * (float)rings[i].meta_patterns;
+            if (score > best) {
+                best = score;
+                pick = i;
+            }
+        }
+        if (pick >= 0) {
+            phrase_take_words(rings[pick].content, phrase, sizeof(phrase), 16);
+        }
+    }
+
+    if (!phrase[0]) return;
+    if (public_reply && strcmp(phrase, public_reply) == 0) return;
+    stanley_absorb_private(s, phrase);
+}
+
 /* ============================================================
  * DREAM — consolidation
  * ============================================================ */
@@ -1260,7 +1443,7 @@ void stanley_dream(Stanley *s) {
     }
     /* promote top internal shards into identity gravity */
     for (int i = 0; i < s->sea.n && s->me.n_gravity < STANLEY_TRIGRAM_GRAV; i++) {
-        if (s->sea.shards[i].kind != 'I') continue;
+        if (s->sea.shards[i].kind != 'I' && s->sea.shards[i].kind != 'M') continue;
         if (!s->sea.shards[i].content) continue;
         uint32_t h = st_hash32(s->sea.shards[i].content, (int)strlen(s->sea.shards[i].content));
         /* skip duplicates */
@@ -1306,6 +1489,8 @@ void stanley_dream(Stanley *s) {
                 s->me.gravity_strength[s->me.n_gravity] = 0.5f * (float)cluster_n;
                 s->me.n_gravity++;
             }
+            sea_record_scar(&s->sea, centroid, st_clamp(0.20f * (float)cluster_n, 0.4f, 1.4f), s->sea.step);
+            s->n_scars++;
             /* clear all R-shards in this cluster so they don't double-count next dream */
             for (int j = i; j < s->sea.n; j++) {
                 if (s->sea.shards[j].kind == 'R' &&
@@ -1356,6 +1541,7 @@ char *stanley_tick(Stanley *s, const char *input) {
     st_pulse p = stanley_pulse(s, input);
     chambers_inject(&s->body, p);
     chambers_step(&s->body, 0.2f);
+    s->last_temp_factor = stanley_somatic_temp_factor(s);
 
     if (stanley_refuses(s, p)) {
         pthread_mutex_lock(&s->mtx);
@@ -1375,6 +1561,7 @@ char *stanley_tick(Stanley *s, const char *input) {
     char *reply = stanley_emit(s, rings, n_rings);
 
     stanley_crystallize(s, rings, n_rings);
+    stanley_metastanley_tick(s, rings, n_rings, reply);
     stanley_accumulate(s, input, reply);
     maturity_update(s, reply != NULL);
 
@@ -1463,6 +1650,14 @@ int stanley_init(Stanley *s, const char *origin_path) {
     s->coherence_floor_baseline = 0.15f;
     s->mass_threshold           = 0.85f;
     s->max_rings                = STANLEY_MAX_RINGS;
+    s->ring_temp_scale          = 1.0f;
+    s->ring_len_scale           = 1.0f;
+    s->graze_rate               = 0.25f;
+    s->somatic_temp_enabled     = 0;
+    s->somatic_temp_strength    = 0.35f;
+    s->last_temp_factor         = 1.0f;
+    s->metastanley_enabled      = 0;
+    s->metastanley_rate         = 0.35f;
     s->last_input_ts            = time(NULL);
     pthread_mutex_init(&s->mtx, NULL);
 
@@ -1519,12 +1714,24 @@ void stanley_repl(Stanley *s) {
             printf("  identity: fragments=%d gravity=%d  sea=%d  pastures=%d  graze_vocab=%d\n",
                    s->me.n_fragments, s->me.n_gravity, s->sea.n, s->n_grazes, graze_v);
             printf("  grazing: profiled=%d\n", graze_profiled_pastures(s));
-            printf("  memory: internal_charge=%.2f refused_charge=%.2f gravity_pressure=%.2f\n",
+            printf("  memory: internal_charge=%.2f refused_charge=%.2f scar_pressure=%.2f scars=%lld gravity_pressure=%.2f\n",
                    sea_recent_charge(s, 'I', 6),
                    sea_recent_charge(s, 'R', 6),
+                   sea_recent_charge(s, 'S', 6),
+                   (long long)s->n_scars,
                    gravity_pressure(s));
             printf("  maturity: speak_ratio=%.2f  coherence_floor=%.3f (baseline %.3f)\n",
                    ratio, s->coherence_floor, s->coherence_floor_baseline);
+            printf("  listening: max_rings=%d temp_scale=%.3f len_scale=%.3f graze_rate=%.3f\n",
+                   s->max_rings, s->ring_temp_scale, s->ring_len_scale, s->graze_rate);
+            printf("  somatic_temp: %s strength=%.3f factor=%.3f\n",
+                   s->somatic_temp_enabled ? "on" : "off",
+                   s->somatic_temp_strength,
+                   s->last_temp_factor);
+            printf("  inner: metastanley=%s rate=%.3f inner_ticks=%lld\n",
+                   s->metastanley_enabled ? "on" : "off",
+                   s->metastanley_rate,
+                   (long long)s->n_inner);
             continue;
         }
         if (!strcmp(line, "/pastures")) {
@@ -1546,6 +1753,11 @@ void stanley_repl(Stanley *s) {
         }
         if (!strcmp(line, "/dream")) { stanley_dream(s); printf("  [dream]\n"); continue; }
         if (!strcmp(line, "/shimmer")) { stanley_shimmer_now(s); printf("  [shimmer]\n"); continue; }
+        if (!strcmp(line, "/inner")) {
+            printf("  inner_ticks=%lld\n", (long long)s->n_inner);
+            printf("  last_inner=%s\n", s->last_inner[0] ? s->last_inner : "(none)");
+            continue;
+        }
         char *reply = stanley_tick(s, line);
         if (reply) { printf("stanley> %s\n", reply); free(reply); }
         else       { printf("stanley> ...\n"); }

@@ -1,7 +1,7 @@
 /*
  * test_refused.c — silence-as-teacher pipeline.
  *   refuse → 'R' shard with pulse fingerprint
- *   dream  → cluster R-shards by pulse similarity → promote centroid into gravity
+ *   dream  → cluster R-shards by pulse similarity → promote centroid into gravity + scar
  */
 #include "../stanley.h"
 #include "check.h"
@@ -56,11 +56,30 @@ int main(void) {
     int gravity_before = c.me.n_gravity;
     stanley_dream(&c);
     CHECK(c.me.n_gravity > gravity_before, "R-shard cluster of 4 promotes into gravity");
+    CHECK(c.n_scars == 1, "R-shard cluster leaves one scar");
+
+    int found_S = 0;
+    for (int i = 0; i < c.sea.n; i++) {
+        if (c.sea.shards[i].kind == 'S') {
+            found_S = 1;
+            CHECK(c.sea.shards[i].resonance > 0.0f, "scar carries repulsive strength");
+            CHECK(c.sea.shards[i].pulse.arousal > 0.0f, "scar carries pulse centroid");
+            break;
+        }
+    }
+    CHECK(found_S, "scar shard kind is S");
 
     /* the cluster members must be tombstoned ('X') after promotion */
     int still_R = 0;
     for (int i = 0; i < c.sea.n; i++) if (c.sea.shards[i].kind == 'R') still_R++;
     CHECK(still_R == 0, "cluster members tombstoned after promotion (no 'R' left)");
+
+    /* ----- similar future pulse hits the scar lane and refuses earlier ----- */
+    c.body.act[0] = 0.80f;
+    c.body.act[1] = 0.60f;
+    c.body.act[2] = 0.50f;
+    c.body.act[3] = 0.10f;
+    CHECK(stanley_refuses(&c, p) == 1, "similar tense pulse is gated by scar pressure");
 
     /* ----- 2 similar refusals + dream → no promotion (cluster too small) ----- */
     Stanley d;
@@ -76,6 +95,7 @@ int main(void) {
     int g0 = d.me.n_gravity;
     stanley_dream(&d);
     CHECK(d.me.n_gravity == g0, "cluster of 2 does NOT promote (threshold is 3)");
+    CHECK(d.n_scars == 0, "cluster of 2 does NOT leave a scar");
 
     stanley_free(&c);
     stanley_free(&d);
